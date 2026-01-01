@@ -247,7 +247,7 @@ export default function Home() {
       <div className="fixed bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-200/40 blur-[100px] rounded-full pointer-events-none z-0"></div>
 
       {/* HEADER: EN ÜST KATMAN (z-50) */}
-      <header className="fixed top-0 left-0 w-full z-[50] h-20 flex items-center justify-between border-b border-slate-200 bg-white/80 backdrop-blur-xl px-6 md:px-10">
+      <header className="fixed top-0 left-0 w-full z-[50] h-15 flex items-center justify-between border-b border-slate-200 bg-white/80 backdrop-blur-xl px-6 md:px-10">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-500/30">
             <span className="material-symbols-outlined text-2xl">account_balance_wallet</span>
@@ -271,7 +271,7 @@ export default function Home() {
       </header>
 
       {/* MAIN CONTENT: ALT KATMAN (z-0) ve ÜST BOŞLUK (pt-28) */}
-      <main className="relative z-0 flex-1 overflow-y-auto p-4 md:p-8 lg:px-20 pt-28 mt-16">
+      <main className="relative z-0 flex-1 overflow-y-auto p-4 lg:px-20 pt-20">
         <div className="mx-auto flex max-w-[1200px] flex-col gap-8">
           
           {/* İstatistik Kartları */}
