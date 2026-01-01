@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { auth, googleProvider, db } from '../firebase'; 
 import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { collection, addDoc, query, where, onSnapshot, deleteDoc, doc, orderBy, serverTimestamp, setDoc, getDoc, Timestamp} from "firebase/firestore";
-// Grafik Kütüphanesi (Bar ve Pie Chart)
+// Grafik Kütüphanesi
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
 // Kategoriler için Renk Paleti
@@ -71,11 +71,32 @@ export default function Home() {
     } catch (error) { console.error(error); }
   };
 
-  // --- HESAPLAMALAR ---
-  const income = transactions.filter(t => Number(t.amount) > 0).reduce((acc, t) => acc + Number(t.amount), 0);
-  const expense = transactions.filter(t => Number(t.amount) < 0).reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-  const monthlyFlow = income - expense;
-  const totalBalance = monthlyFlow + startingBalance;
+  /// --- HESAPLAMALAR ) ---
+  
+  // 1. Cüzdan Bakiyesi için TÜM zamanları hesapla
+  const allTimeIncome = transactions.filter(t => Number(t.amount) > 0).reduce((acc, t) => acc + Number(t.amount), 0);
+  const allTimeExpense = transactions.filter(t => Number(t.amount) < 0).reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
+  
+  // Toplam Bakiye (Cüzdan)
+  const totalBalance = (allTimeIncome - allTimeExpense) + startingBalance;
+
+  // 2. Kartlar ve Bar için SADECE BU AYI hesapla
+  const now = new Date();
+  const currentMonth = now.getMonth(); 
+  const currentYear = now.getFullYear();
+  const currentMonthLabel = now.toLocaleDateString('tr-TR', { month: '2-digit', year: 'numeric' });
+
+  const thisMonthTransactions = transactions.filter(t => {
+      if (!t.date) return false;
+      const tDate = t.date.toDate();
+      return tDate.getMonth() === currentMonth && tDate.getFullYear() === currentYear;
+  });
+
+  const monthlyIncome = thisMonthTransactions.filter(t => t.amount > 0).reduce((acc, t) => acc + t.amount, 0);
+  const monthlyExpense = thisMonthTransactions.filter(t => t.amount < 0).reduce((acc, t) => acc + Math.abs(t.amount), 0);
+
+  // EKSİK OLAN SATIR BU (Artık eklendi):
+  const monthlyFlow = monthlyIncome - monthlyExpense;
 
   // --- GRAFİK 1: GÜNLÜK AKIŞ (Son 30 Gün) ---
   const processChartData = () => {
@@ -101,25 +122,20 @@ export default function Home() {
 
   // --- GRAFİK 2: KATEGORİ DAĞILIMI (Donut Chart) ---
   const processCategoryData = () => {
-    // Sadece giderleri al
     const expenses = transactions.filter(t => t.amount < 0);
     const categoryMap = {};
 
     expenses.forEach(t => {
-        // Kategori isminden emojiyi temizleyebiliriz veya olduğu gibi bırakabiliriz.
-        // Şimdilik olduğu gibi alıyoruz: "🍔 Yeme-İçme"
         const cat = t.category || "Diğer";
         if (!categoryMap[cat]) categoryMap[cat] = 0;
         categoryMap[cat] += Math.abs(t.amount);
     });
 
-    // PieChart formatına çevir
     const data = Object.keys(categoryMap).map(key => ({
         name: key,
         value: categoryMap[key]
     }));
 
-    // Büyükten küçüğe sırala (Görsel olarak daha güzel durur)
     return data.sort((a, b) => b.value - a.value);
   };
   
@@ -183,7 +199,7 @@ export default function Home() {
       {/* HEADER */}
       <header className="fixed top-0 left-0 w-full z-[40] h-20 flex items-center justify-between border-b border-slate-200 bg-white/80 backdrop-blur-xl px-6 md:px-10">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-600 text-white shadow-lg shadow-blue-500/30">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl shadow-lg shadow-blue-500/30">
             <span className="material-symbols-outlined text-2xl">calculate</span>
           </div>
           <h2 className="text-xl font-bold tracking-tight text-slate-800">Finans AI</h2>
@@ -204,27 +220,44 @@ export default function Home() {
               <div className="flex-1 flex flex-col justify-center gap-3 w-full">
                 <div>
                     <h3 className="text-lg font-bold text-slate-800">
-                        {totalBalance < 0 ? "Dikkatli Olmalısın ⚠️" : totalBalance < 50000 ? "Tasarruf Zamanı 📉" : "Harika Gidiyorsun! 🎉"}
+                        {monthlyFlow < 0 ? "Bütçe Aşıldı! 🚨" : monthlyFlow < 50000 ? "İdare Ediyorsun 🤔" : "Süper Tasarruf! 🚀"}
                     </h3>
                     <p className="text-sm text-slate-500">
-                        {totalBalance < 0 ? "Harcamaların gelirini aşmış durumda." : totalBalance < 50000 ? "Henüz güvendesin ama sınırdasın." : "Gelirlerin giderlerinden fazla, cüzdanın keyfi yerinde."}
+                        {monthlyFlow < 0 
+                            ? `Bu ay gelirinden ${formatMoney(Math.abs(monthlyFlow))} fazlasını harcadın.` 
+                            : `Bu ay gelirinin %${monthlyIncome > 0 ? Math.round((monthlyFlow / monthlyIncome) * 100) : 0}'sini tasarruf ettin.`}
                     </p>
                 </div>
-                {/* Bar */}
+                
+                {/* YENİ BAR MANTIĞI */}
                 <div className="relative w-full h-4 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                    <div className={`h-full transition-all duration-1000 ease-out flex items-center justify-end pr-2 text-[10px] font-bold text-white ${totalBalance >= 0 ? 'bg-gradient-to-r from-green-400 to-green-500' : 'bg-gradient-to-r from-red-400 to-red-600'}`} style={{ width: totalBalance >= 0 ? `${Math.min((totalBalance / (income || 1)) * 100 + 20, 100)}%` : '100%' }}></div>
+                    <div 
+                        className={`h-full transition-all duration-1000 ease-out flex items-center justify-end pr-2 text-[10px] font-bold text-white shadow-sm
+                        ${monthlyFlow >= 0 ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 'bg-gradient-to-r from-red-500 to-red-600'}`} 
+                        style={{ 
+                            width: monthlyFlow >= 0 
+                                ? `${monthlyIncome > 0 ? Math.min((monthlyFlow / monthlyIncome) * 100, 100) : 0}%` // Tasarruf Oranı
+                                : '100%' // Zarardaysa barı tam doldur (Uyarı)
+                        }}
+                    >
+                    </div>
                 </div>
               </div>
-              <div className={`h-24 w-24 shrink-0 flex items-center justify-center rounded-full border-4 shadow-xl transition-all ${totalBalance < 0 ? 'bg-red-100 border-red-200' : totalBalance < 50000 ? 'bg-orange-100 border-orange-200' : 'bg-green-100 border-green-200'}`}>
-                {totalBalance < 0 ? <img src="/unhappy.gif" className="h-20 w-20 object-contain scale-x-[-1]"/> : totalBalance < 50000 ? <img src="/notr.gif" className="h-20 w-20 object-contain scale-x-[-1]"/> : <img src="/happy.gif" className="h-20 w-20 object-contain scale-x-[-1]"/>}
+
+              {/* Karakter Animasyonu */}
+              <div className={`h-24 w-24 shrink-0 flex items-center justify-center rounded-full border-4 shadow-xl transition-all 
+                ${monthlyFlow < 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                {monthlyFlow < 0 ? 
+                    <img src="/unhappy.gif" className="h-20 w-20 object-contain scale-x-[-1]"/> : 
+                    <img src="/happy.gif" className="h-20 w-20 object-contain scale-x-[-1]"/>
+                }
               </div>
             </div>
           </div>
 
           {/* 2. KISIM: GRAFİKLER (YAN YANA DÜZEN) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             
-             {/* SOL GRAFİK: BAR CHART (Gidişat) */}
+             {/* SOL GRAFİK: BAR CHART */}
              <div className="w-full h-[350px] bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
                  <div className="flex items-center justify-between mb-4 shrink-0">
                     <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500">30 Günlük Akış</h3>
@@ -233,7 +266,8 @@ export default function Home() {
                         <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400"></span> Gider</div>
                     </div>
                  </div>
-                 <div className="flex-1 min-h-0">
+                 {/* w-full h-full ve min-h-0 eklendi */}
+                 <div className="flex-1 w-full h-full min-h-0">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -247,12 +281,13 @@ export default function Home() {
                  </div>
              </div>
 
-             {/* SAĞ GRAFİK: DONUT CHART (Harcama Dağılımı) */}
+             {/* SAĞ GRAFİK: DONUT CHART */}
              <div className="w-full h-[350px] bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
                  <div className="flex items-center justify-between mb-2 shrink-0">
                     <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500">Kategori Dağılımı</h3>
                  </div>
-                 <div className="flex-1 min-h-0 flex items-center justify-center">
+                 {/* w-full h-full ve min-h-0 eklendi */}
+                 <div className="flex-1 w-full h-full min-h-0 flex items-center justify-center">
                     {categoryData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
@@ -287,18 +322,23 @@ export default function Home() {
                     )}
                  </div>
              </div>
-
           </div>
 
-          {/* 3. KISIM: İSTATİSTİK KARTLARI */}
+          {/* 3. KISIM: İSTATİSTİK KARTLARI (GÜNCELLENDİ) */}
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <div className="rounded-2xl p-6 border border-slate-200 bg-white shadow-sm h-32 flex flex-col justify-between">
-               <p className="text-sm font-semibold text-slate-500 uppercase">Bu Ay Gelen</p>
-               <p className="text-3xl font-bold text-slate-800">{formatMoney(income)}</p>
+            <div className="rounded-2xl p-6 border border-slate-200 bg-white shadow-sm h-32 flex flex-col justify-between relative">
+               <div className="flex justify-between items-start">
+                   <p className="text-sm font-semibold text-slate-500 uppercase">Bu Ay Gelen</p>
+                   <span className="text-[12px] text-slate-500 font-mono border border-slate-300 px-1.5 rounded">{currentMonthLabel}</span>
+               </div>
+               <p className="text-3xl font-bold text-slate-800">{formatMoney(monthlyIncome)}</p>
             </div>
-            <div className="rounded-2xl p-6 border border-slate-200 bg-white shadow-sm h-32 flex flex-col justify-between">
-               <p className="text-sm font-semibold text-slate-500 uppercase">Bu Ay Giden</p>
-               <p className="text-3xl font-bold text-slate-800">{formatMoney(expense)}</p>
+            <div className="rounded-2xl p-6 border border-slate-200 bg-white shadow-sm h-32 flex flex-col justify-between relative">
+               <div className="flex justify-between items-start">
+                   <p className="text-sm font-semibold text-slate-500 uppercase">Bu Ay Giden</p>
+                   <span className="text-[12px] text-slate-500 font-mono border border-slate-300 px-1.5 rounded">{currentMonthLabel}</span>
+               </div>
+               <p className="text-3xl font-bold text-slate-800">{formatMoney(monthlyExpense)}</p>
             </div>
           </div>
 
@@ -318,7 +358,7 @@ export default function Home() {
                     <div key={t.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl">
                          <div className="flex items-center gap-3">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${t.amount < 0 ? 'bg-orange-50 text-orange-500' : 'bg-green-50 text-green-500'}`}>
-                                <span className="material-symbols-outlined text-[20px]">{t.amount < 0 ? 'remove' : 'payments'}</span>
+                                <span className="material-symbols-outlined text-[20px]">{t.amount < 0 ? 'shopping_cart' : 'payments'}</span>
                             </div>
                             <div>
                                 <div className="text-sm font-bold text-slate-700">{t.desc}</div>
@@ -336,7 +376,7 @@ export default function Home() {
         </div>
       </main>
 
-      {/* CHAT PENCERESİ VE MODALLAR (AYNI) */}
+      {/* CHAT VE MODALLAR AYNI */}
       <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end gap-4">
         <div className={`bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col transition-all duration-300 ease-in-out origin-bottom-right ${isChatOpen ? 'w-[350px] h-[500px] opacity-100 scale-100' : 'w-0 h-0 opacity-0 scale-50 pointer-events-none'}`}>
             <div className="bg-blue-600 p-4 flex items-center justify-between text-white shrink-0">

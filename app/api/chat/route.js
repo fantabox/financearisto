@@ -8,7 +8,7 @@ function fixCategory(aiCategory) {
     const cat = aiCategory.toLowerCase();
 
     // Anahtar kelimelere göre doğru formatı zorla
-    if (cat.includes("eğlence") || cat.includes("sosyal") || cat.includes("market") || cat.includes("restoran") || cat.includes("sinema") || cat.includes("tatil") || cat.includes("kafe")) {
+    if (cat.includes("eğlence") ||  cat.includes("sosyal") || cat.includes("market") || cat.includes("restoran") || cat.includes("sinema") || cat.includes("tatil") || cat.includes("kafe")) {
         return "🎉 Eğlence/Sosyal";
     }
     if (cat.includes("yeme") || cat.includes("içme") ||  cat.includes("bakkal") || cat.includes("gıda")) {
