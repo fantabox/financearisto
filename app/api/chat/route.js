@@ -15,38 +15,34 @@ export async function POST(req) {
     const prompt = `
     Sen uzman bir muhasebe asistanısın. 
     Bugünün Tarihi: ${today} (${isoDate}).
+    Para Birimi: Japon Yeni (¥ / JPY).
     Kullanıcı Mesajı: "${message}"
 
     GÖREVİN:
     Mesajı analiz et ve geçen tüm finansal işlemleri tespit et.
 
     KURALLAR:
-    1. Birden fazla harcama varsa hepsini ayrı ayrı listele. (Örn: "Market 100, Benzin 500" -> 2 ayrı işlem).
-    2. Tarih belirtildiyse (dün, geçen cuma vb.) hesapla, yoksa bugünün tarihini (${isoDate}) kullan.
+    1. Birden fazla harcama varsa hepsini ayrı ayrı listele.
+    2. Tarih belirtildiyse hesapla, yoksa bugünün tarihini kullan.
     3. Harcamalar NEGATİF (-), Gelirler POZİTİF (+) olmalı.
-    4. ASLA hayali işlem uydurma.
+    4. Tutarlar Japon Yeni (JPY) cinsindendir. (Örn: "Market 2000" -> 2000 Yen).
+    5. Japonya'da kuruş kullanılmaz, tam sayı kullan.
 
-    JSON FORMATI (Sadece bunu döndür):
+    JSON FORMATI:
     {
-      "reply": "Kullanıcıya özet cevap (Örn: Yılbaşı ve Benzin harcamalarını kaydettim.)",
+      "reply": "Kullanıcıya Türkçe cevap ver. (Örn: 2000 Yen market harcamasını ekledim.)",
       "transactions": [
          { 
-           "amount": -500, 
-           "category": "Eğlence", 
-           "desc": "Yılbaşı Harcaması",
-           "date": "2025-12-31" 
-         },
-         { 
-           "amount": -1200, 
-           "category": "Ulaşım", 
-           "desc": "Benzin",
-           "date": "2025-12-31" 
+           "amount": -2000, 
+           "category": "Market", 
+           "desc": "Seiyu Alışverişi",
+           "date": "2026-01-01" 
          }
       ]
     }
-    
-    Eğer hiç işlem yoksa "transactions": [] (boş liste) döndür.
+    Eğer işlem yoksa "transactions": [] döndür.
     `;
+   
 
     const result = await model.generateContent(prompt);
     const response = await result.response;

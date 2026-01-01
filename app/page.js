@@ -203,7 +203,12 @@ export default function Home() {
   };
 
   const formatMoney = (amount) => {
-    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(amount);
+    // Japonya'da ondalık (kuruş) yoktur, bu yüzden fractionDigits 0 yaptık.
+    return new Intl.NumberFormat('ja-JP', { 
+        style: 'currency', 
+        currency: 'JPY',
+        maximumFractionDigits: 0 
+    }).format(amount);
   };
 
   // --- EĞER KULLANICI GİRİŞ YAPMADIYSA: LOGIN EKRANI GÖSTER ---
@@ -317,14 +322,14 @@ export default function Home() {
                     {/* BAŞLIK KISMI */}
                     <h3 className="text-lg font-bold text-slate-800">
                         {totalBalance < 0 ? "Dikkatli Olmalısın ⚠️" : 
-                         totalBalance < 5000 ? "Tasarruf Zamanı 📉" : "Harika Gidiyorsun! 🎉"}
+                         totalBalance < 50000 ? "Tasarruf Zamanı 📉" : "Harika Gidiyorsun! 🎉"}
                     </h3>
                     
                     {/* AÇIKLAMA / TAVSİYE KISMI */}
                     <p className="text-sm text-slate-500">
                         {totalBalance < 0 
                             ? "Harcamaların gelirini aşmış durumda. Acil durum planı yapmalısın!" 
-                            : totalBalance < 5000 
+                            : totalBalance < 50000 
                                 ? "Henüz güvendesin ama sınır dasın. Bu ay harcamalarına biraz daha dikkat et." 
                                 : "Gelirlerin giderlerinden fazla, cüzdanın keyfi yerinde. Yatırım düşünebilirsin."}
                     </p>
@@ -337,9 +342,9 @@ export default function Home() {
                     <div 
                         className={`h-full transition-all duration-1000 ease-out flex items-center justify-end pr-2 text-[10px] font-bold text-white shadow-[0_0_20px_rgba(0,0,0,0.2)] 
                         ${totalBalance < 0 ? 'bg-gradient-to-r from-red-400 to-red-600 w-full' : 
-                          totalBalance < 5000 ? 'bg-gradient-to-r from-orange-400 to-orange-500 w-[50%]' : 'bg-gradient-to-r from-green-400 to-green-500 w-[85%]'}`}
+                          totalBalance < 50000 ? 'bg-gradient-to-r from-orange-400 to-orange-500 w-[50%]' : 'bg-gradient-to-r from-green-400 to-green-500 w-[85%]'}`}
                     >
-                        {totalBalance < 0 ? 'LİMİT AŞILDI' : totalBalance < 5000 ? 'DİKKAT' : 'GÜVENLİ'}
+                        {totalBalance < 0 ? 'LİMİT AŞILDI' : totalBalance < 50000 ? 'DİKKAT' : 'GÜVENLİ'}
                     </div>
                     {/* Hareketli Bar */}
                     <div 
@@ -372,7 +377,7 @@ export default function Home() {
                             />
                         );
                     } 
-                    // 2. DURUM: 0 - 5000 TL ARASI (ORTA/ENDİŞELİ)
+                    // 2. DURUM: 0 - 50000 YEN ARASI (ORTA/ENDİŞELİ)
                     else if (totalBalance < 5000) {
                         return (
                             <img 
@@ -382,7 +387,7 @@ export default function Home() {
                             />
                         );
                     } 
-                    // 3. DURUM: 5000 TL ÜSTÜ (MUTLU)
+                    // 3. DURUM: 50000 YEN ÜSTÜ (MUTLU)
                     else {
                         return (
                             <img 
