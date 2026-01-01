@@ -1,6 +1,42 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 
+// Kategori Standartlaştırma Fonksiyonu
+function fixCategory(aiCategory) {
+    if (!aiCategory) return "📦 Diğer";
+    
+    const cat = aiCategory.toLowerCase();
+
+    // Anahtar kelimelere göre doğru formatı zorla
+    if (cat.includes("eğlence") || cat.includes("sosyal") || cat.includes("market") || cat.includes("restoran") || cat.includes("sinema") || cat.includes("tatil") || cat.includes("kafe")) {
+        return "🎉 Eğlence/Sosyal";
+    }
+    if (cat.includes("yeme") || cat.includes("içme") ||  cat.includes("bakkal") || cat.includes("gıda")) {
+        return "🍔 Yeme-İçme";
+    }
+    if (cat.includes("ev") || cat.includes("yaşam") || cat.includes("kira") || cat.includes("aidat") || cat.includes("mobilya")) {
+        return "🏠 Ev/Yaşam";
+    }
+    if (cat.includes("ulaşım") || cat.includes("benzin") || cat.includes("taksi") || cat.includes("otobüs") || cat.includes("araba") || cat.includes("tren") || cat.includes("suica")) {
+        return "🚌 Ulaşım";
+    }
+    if (cat.includes("fatura") || cat.includes("elektrik") || cat.includes("su") || cat.includes("internet") || cat.includes("telefon")) {
+        return "💡 Faturalar";
+    }
+    if (cat.includes("alışveriş") || cat.includes("giyim") || cat.includes("kıyafet") || cat.includes("teknoloji") || cat.includes("kozmetik")) {
+        return "🛍️ Alışveriş";
+    }
+    if (cat.includes("sağlık") || cat.includes("doktor") || cat.includes("eczane") || cat.includes("spor")) {
+        return "🏥 Sağlık";
+    }
+    if (cat.includes("gelir") || cat.includes("maaş") || cat.includes("yatırım") || cat.includes("borç") || cat.includes("alacak")) {
+        return "💰 Gelir/Yatırım";
+    }
+
+    // Hiçbirine uymuyorsa
+    return "📦 Diğer";
+}
+
 export async function POST(req) {
   try {
     const { message } = await req.json();
@@ -13,63 +49,64 @@ export async function POST(req) {
     const isoDate = now.toISOString().split('T')[0];
 
     const prompt = `
-    Sen uzman bir muhasebe asistanısın. 
-    Bugünün Tarihi: ${today} (${isoDate}).
-    Para Birimi: Japon Yeni (¥ / JPY).
+    Sen Japonya'da yaşayan bir Türk için muhasebe asistanısın.
+    Bugün: ${today} (${isoDate}).
+    Para Birimi: JPY (Yen).
+    
     Kullanıcı Mesajı: "${message}"
 
-    GÖREVİN:
-    Mesajı analiz et ve geçen tüm finansal işlemleri tespit et.
+    GÖREV:
+    İşlemleri analiz et ve JSON döndür.
+
+    KATEGORİ SEÇİMİ (Buna uymaya çalış ama hata yaparsan kod düzeltecek):
+    1. 🏠 Ev/Yaşam
+    2. 🍔 Yeme-İçme (Haftalık alışveriş vb.)
+    3. 🎉 Eğlence/Sosyal (Restoran, Sushiro, Kafe, Market vb.)
+    4. 🚌 Ulaşım
+    5. 💡 Faturalar
+    6. 🛍️ Alışveriş
+    7. 🏥 Sağlık
+    8. 💰 Gelir/Yatırım
+    9. 📦 Diğer
 
     KURALLAR:
-    1. Birden fazla harcama varsa hepsini ayrı ayrı listele.
-    2. Tarih belirtildiyse hesapla, yoksa bugünün tarihini kullan.
-    3. Harcamalar NEGATİF (-), Gelirler POZİTİF (+) olmalı.
-    4. Tutarlar Japon Yeni (JPY) cinsindendir. (Örn: "Market 2000" -> 2000 Yen).
-    5. Japonya'da kuruş kullanılmaz, tam sayı kullan.
+    - Restoran, Sushiro, Dışarıda yemek -> "🎉 Eğlence/Sosyal" olsun.
+    - Harcama negatif (-), Gelir pozitif (+).
+    - Japon Yeni tam sayıdır (Kuruş yok).
 
-    JSON FORMATI:
+    JSON:
     {
-      "reply": "Kullanıcıya Türkçe cevap ver. (Örn: 2000 Yen market harcamasını ekledim.)",
+      "reply": "Kısa cevap.",
       "transactions": [
-         { 
-           "amount": -2000, 
-           "category": "Market", 
-           "desc": "Seiyu Alışverişi",
-           "date": "2026-01-01" 
-         }
+         { "amount": -5300, "category": "🎉 Eğlence/Sosyal", "desc": "Sushiro", "date": "${isoDate}" }
       ]
     }
-    Eğer işlem yoksa "transactions": [] döndür.
     `;
-   
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     let text = response.text();
     
-    // Temizlik
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
     
     try {
         const jsonResponse = JSON.parse(text);
         
-        // Garanti: transactions her zaman bir dizi (array) olsun
-        if (!jsonResponse.transactions) {
-            jsonResponse.transactions = [];
-        }
-        
-        // Eğer AI yanlışlıkla tek obje (transaction) döndürdüyse onu diziye çevir
-        if (jsonResponse.transaction && !Array.isArray(jsonResponse.transactions)) {
-            jsonResponse.transactions = [jsonResponse.transaction];
-        }
+        if (!jsonResponse.transactions) jsonResponse.transactions = [];
+        if (jsonResponse.transaction && !Array.isArray(jsonResponse.transactions)) jsonResponse.transactions = [jsonResponse.transaction];
+
+        // BURADA KATEGORİLERİ ZORLA DÜZELTİYORUZ
+        jsonResponse.transactions = jsonResponse.transactions.map(t => ({
+            ...t,
+            category: fixCategory(t.category) // Bekçi fonksiyon devrede
+        }));
 
         return NextResponse.json(jsonResponse);
 
     } catch (e) {
         console.error("JSON Parse Hatası:", text);
         return NextResponse.json({ 
-            reply: "İşlemleri tam anlayamadım, tekrar eder misin?", 
+            reply: "İşlemi tam anlayamadım, tekrar yazar mısın?", 
             transactions: [] 
         });
     }
