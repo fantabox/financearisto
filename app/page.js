@@ -1,14 +1,42 @@
 "use client";
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 // Firebase
 import { auth, googleProvider, db } from '../firebase'; 
 import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { collection, addDoc, query, where, onSnapshot, deleteDoc, doc, orderBy, serverTimestamp, setDoc, getDoc, Timestamp} from "firebase/firestore";
 // Grafik Kütüphanesi
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';// Kategoriler için Renk Paleti
+// Modern FinTech Renk Paleti
+const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
-// Kategoriler için Renk Paleti
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#A28DFF', '#FF6699', '#36A2EB', '#FF6384', '#4BC0C0'];
+
+const CustomTooltip = ({ active, payload, label, }) => {
+  if (active && payload && payload.length) {
+    const title = label ? label : payload[0].name;
+    const isPieChart = !label;
+    return (
+      <div className="bg-white/95 backdrop-blur-sm p-2 border border-slate-100 shadow-md rounded-lg text-xs z-50">
+        <p className="font-bold text-slate-700 mb-1 border-b border-slate-100 pb-1">
+          {title}
+        </p>
+        {/* İçerik */}
+        <div className="flex flex-col gap-0.5"></div>
+        {payload.map((entry, index) => (
+          <div key={index} className="flex items-center justify-between gap-3 min-w-[100px]">
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></span>
+              <span className="text-slate-500 font-medium"></span>
+            </span>
+            <span className="font-bold font-mono" style={{ color: entry.color }}>
+              ¥{new Intl.NumberFormat('ja-JP').format(entry.value)}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return null;
+};
 
 export default function Home() {
   const [user, setUser] = useState(null);
@@ -23,6 +51,7 @@ export default function Home() {
   const [startingBalance, setStartingBalance] = useState(0); 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const chatEndRef = useRef(null);
+  const [chartView, setChartView] = useState('monthly');
 
   // --- 1. KULLANICI TAKİBİ ---
   useEffect(() => {
@@ -98,6 +127,9 @@ export default function Home() {
   // EKSİK OLAN SATIR BU (Artık eklendi):
   const monthlyFlow = monthlyIncome - monthlyExpense;
 
+  // Tasarruf oranını hesapla (0 ile 1 arasında bir sayı döner, örn: 0.65)
+  const savingsRate = monthlyIncome > 0 ? monthlyFlow / monthlyIncome : 0;
+
   // --- GRAFİK 1: GÜNLÜK AKIŞ (Son 30 Gün) ---
   const processChartData = () => {
     const last30Days = [];
@@ -139,8 +171,83 @@ export default function Home() {
     return data.sort((a, b) => b.value - a.value);
   };
   
-  const chartData = processChartData();
-  const categoryData = processCategoryData();
+  const chartData = useMemo(() => processChartData(), [transactions]);
+  const categoryData = useMemo(() => processCategoryData(), [transactions]);
+
+  // --- YENİ: AYLIK TREND (DALGA GRAFİĞİ İÇİN) ---
+  const processMonthlyTrendData = () => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    // Ayın kaç çektiğini bul (Örn: Şubat 28, Mart 31)
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    
+    const data = [];
+    
+    // Ayın 1'inden son gününe kadar döngü
+    for (let i = 1; i <= daysInMonth; i++) {
+        const dayTransactions = transactions.filter(t => {
+            if(!t.date) return false;
+            const tDate = t.date.toDate();
+            return tDate.getDate() === i && tDate.getMonth() === currentMonth && tDate.getFullYear() === currentYear;
+        });
+
+        const dayIncome = dayTransactions.filter(t => t.amount > 0).reduce((acc, t) => acc + t.amount, 0);
+        const dayExpense = dayTransactions.filter(t => t.amount < 0).reduce((acc, t) => acc + Math.abs(t.amount), 0);
+        
+        // O günkü Net Akış (İstersen kümülatif de yapabiliriz ama dalga için günlük net akış güzel durur)
+        const netFlow = dayIncome - dayExpense; 
+
+        // Grafikte boş günleri 0 olarak göstermek yerine sadece bugüne kadar olanları göstermek istersen:
+        // if (i > now.getDate()) break; // Gelecek günleri gösterme (Tercihe bağlı)
+
+        data.push({ day: i, net: netFlow, income: dayIncome, expense: dayExpense });
+    }
+    return data;
+  };
+
+  // Veriyi değişkene ata (useMemo kullanıyorsan içine alabilirsin)
+  const monthlyTrendData = processMonthlyTrendData();
+
+  
+  // --- YENİ: YILLIK TREND (12 AY) ---
+  const processYearlyTrendData = () => {
+    const currentYear = new Date().getFullYear();
+    const months = [
+      "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
+      "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+    ];
+    
+    const data = months.map((monthName, index) => {
+        const monthTransactions = transactions.filter(t => {
+            if(!t.date) return false;
+            const tDate = t.date.toDate();
+            // Sadece o yıla ve o aya ait işlemleri al
+            return tDate.getMonth() === index && tDate.getFullYear() === currentYear;
+        });
+
+        const mIncome = monthTransactions.filter(t => t.amount > 0).reduce((acc, t) => acc + t.amount, 0);
+        const mExpense = monthTransactions.filter(t => t.amount < 0).reduce((acc, t) => acc + Math.abs(t.amount), 0);
+        const netFlow = mIncome - mExpense;
+
+        return { 
+          name: monthName, // X ekseninde görünecek isim
+          shortName: (index + 1).toString(), // Mobilde yer kaplamasın diye rakam
+          net: netFlow, 
+          income: mIncome, 
+          expense: mExpense 
+        };
+    });
+    return data;
+  };
+  
+  // Hangi verinin gösterileceğini seçen değişken
+  const displayData = useMemo(() => {
+    if (chartView === 'yearly') {
+      return processYearlyTrendData();
+    }
+    return processMonthlyTrendData(); // Mevcut fonksiyonunuz
+  }, [chartView, transactions]);
 
   // --- DİĞER FONKSİYONLAR ---
   const handleLogin = async () => { await signInWithPopup(auth, googleProvider); };
@@ -154,7 +261,15 @@ export default function Home() {
     setInput("");
     setLoading(true);
     try {
-      const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: userMsg.text }) });
+      const res = await fetch('/api/chat', { 
+    method: 'POST', 
+    headers: { 
+        'Content-Type': 'application/json',
+        // Next.js client tarafında env kullanmak için NEXT_PUBLIC_ ön eki gerekir
+        'x-app-key': process.env.NEXT_PUBLIC_APP_SECRET_KEY 
+    }, 
+    body: JSON.stringify({ message: userMsg.text }) 
+});
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'ai', text: data.reply || "Kaydedildi.", time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }]);
       if (data.transactions && Array.isArray(data.transactions) && user) {
@@ -220,7 +335,18 @@ export default function Home() {
               <div className="flex-1 flex flex-col justify-center gap-3 w-full">
                 <div>
                     <h3 className="text-lg font-bold text-slate-800">
-                        {monthlyFlow < 0 ? "Bütçe Aşıldı! 🚨" : monthlyFlow < 50000 ? "İdare Ediyorsun 🤔" : "Süper Tasarruf! 🚀"}
+                        {monthlyFlow < 0 
+                            ? "Bütçe Aşıldı! 🚨" 
+                             : monthlyFlow < 20000 
+                            ? "Zor Zamanlar Dikkatli Olmalısın! 🚨" 
+                            : monthlyFlow < 40000
+                                ? "Elinden geleni yapıyorsun! 👍" 
+                                : monthlyFlow < 50000 
+                                    ? "İdare Ediyorsun 🤔" 
+                                    : savingsRate < 0.65 
+                                        ? "İyi Gidiyorsun 👍"   // <-- YENİ EKLENEN KISIM
+                                        : "Süper Tasarruf! 🚀"  // %65'i geçince burası çalışır
+                        }
                     </h3>
                     <p className="text-sm text-slate-500">
                         {monthlyFlow < 0 
@@ -245,76 +371,132 @@ export default function Home() {
               </div>
 
               {/* Karakter Animasyonu */}
-              <div className={`h-24 w-24 shrink-0 flex items-center justify-center rounded-full border-4 shadow-xl transition-all 
-                ${monthlyFlow < 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                {monthlyFlow < 0 ? 
-                    <img src="/unhappy.gif" className="h-20 w-20 object-contain scale-x-[-1]"/> : 
+              <div className={`h-18 w-18 shrink-0 flex items-center justify-center rounded-2xl border-4 shadow-xl transition-all 
+                ${monthlyFlow < 0 
+                    ? 'bg-red-50 border-red-200'         // Kötü
+                    : monthlyFlow < 50000 
+                        ? 'bg-orange-50 border-orange-200' // İdare Eder
+                        : savingsRate < 0.65
+                            ? 'bg-blue-50 border-blue-200'  // YENİ: İyi Gidiyorsun (Mavi)
+                            : 'bg-emerald-50 border-emerald-200' // Süper
+                }`}>
+                
+                {monthlyFlow < 0 ? (
+                    <img src="/unhappy.gif" className="h-20 w-20 object-contain scale-x-[-1]"/>
+                ) : monthlyFlow < 50000 ? (
+                    <img src="/notr.gif" className="h-20 w-20 object-contain scale-x-[-1]"/>
+                ) : savingsRate < 0.65 ? (
+                    // YENİ: "İyi gidiyorsun" için aynı mutlu gif'i veya başka bir gif'i kullanabilirsiniz
+                    <img src="/good.gif" className="h-20 w-20 object-contain scale-x-[-1]"/>
+                ) : (
+                    // %65 üzeri için süper gif (varsa super.gif yoksa happy.gif)
                     <img src="/happy.gif" className="h-20 w-20 object-contain scale-x-[-1]"/>
-                }
+                )}
+
               </div>
             </div>
           </div>
+          
+          {/* 2. KISIM: GRAFİKLER (Dalga) */}
+          <div className="w-full h-72 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mt-6">
+              
+              {/* Başlık ve Filtre Butonları */}
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500">
+                  {chartView === 'monthly' ? 'Bu Ayın Gidişatı' : 'Yıllık Genel Bakış'}
+                </h3>
+                
+                {/* Filtre Switch */}
+                <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold">
+                  <button 
+                    onClick={() => setChartView('monthly')}
+                    className={`px-3 py-1.5 rounded-md transition-all ${chartView === 'monthly' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    Bu Ay
+                  </button>
+                  <button 
+                    onClick={() => setChartView('yearly')}
+                    className={`px-3 py-1.5 rounded-md transition-all ${chartView === 'yearly' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    Yıl
+                  </button>
+                </div>
+              </div>
 
-          {/* 2. KISIM: GRAFİKLER (YAN YANA DÜZEN) */}
+              <div className="w-full h-full min-h-[200px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={displayData} margin={{ top: 10, right: 0, left: -20, bottom: 25 }}>
+                          <defs>
+                              <linearGradient id="colorNet" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                              </linearGradient>
+                          </defs>
+                          
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          
+                          {/* X EKSENİ: Görünüm 'yearly' ise ay isimlerini, 'monthly' ise günleri gösterir */}
+                          <XAxis 
+                            dataKey={chartView === 'yearly' ? "name" : "day"} 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{fill: '#94a3b8', fontSize: 11}} 
+                            interval={chartView === 'yearly' ? 0 : 'preserveStartEnd'} // Yıllık modda tüm ayları göster
+                            tickFormatter={(val) => chartView === 'yearly' ? val.substring(0, 3) : val} // Ayları kısalt (Oca, Şub...)
+                          />
+                          
+                          <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} tickFormatter={(value) => `¥${value/1000}k`}/>
+                          
+                          <Tooltip content={<CustomTooltip />} />
+                          
+                          <Area 
+                              type="monotone" 
+                              dataKey="net" 
+                              stroke="#3b82f6" 
+                              fillOpacity={1} 
+                              fill="url(#colorNet)" 
+                              strokeWidth={3}
+                              name="Net Akış"
+                              animationDuration={1000} // Geçiş animasyonu
+                          />
+                      </AreaChart>
+                  </ResponsiveContainer>
+              </div>
+          </div>
+
+          {/* 2.1 KISIM: GRAFİKLER (YAN YANA DÜZEN) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
              {/* SOL GRAFİK: BAR CHART */}
-             <div className="w-full h-[350px] bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
-                 <div className="flex items-center justify-between mb-4 shrink-0">
-                    <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500">30 Günlük Akış</h3>
-                    <div className="flex gap-3 text-xs font-bold">
-                        <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400"></span> Gelir</div>
-                        <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400"></span> Gider</div>
-                    </div>
-                 </div>
-                 {/* w-full h-full ve min-h-0 eklendi */}
-                 <div className="flex-1 w-full h-full min-h-0">
+             <div className="w-full h-80 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
+                 <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4 shrink-0">30 Günlük Akış</h3>
+                 <div className="flex-1 w-full min-h-0 relative overflow-hidden">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} dy={10} />
                             <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} tickFormatter={(value) => `¥${value/1000}k`} />
-                            <RechartsTooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'}} />
-                            <Bar dataKey="Gelir" fill="#4ade80" radius={[4, 4, 0, 0]} barSize={12} />
-                            <Bar dataKey="Gider" fill="#fb923c" radius={[4, 4, 0, 0]} barSize={12} />
+                            <Tooltip content={<CustomTooltip />} cursor={{fill: '#f1f5f9', opacity: 0.5}} />
+                            <Bar dataKey="Gelir" fill="#10B981" radius={[4, 4, 0, 0]} barSize={12} />
+                            <Bar dataKey="Gider" fill="#F43F5E" radius={[4, 4, 0, 0]} barSize={12} />
                         </BarChart>
                     </ResponsiveContainer>
                  </div>
              </div>
 
              {/* SAĞ GRAFİK: DONUT CHART */}
-             <div className="w-full h-[350px] bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
-                 <div className="flex items-center justify-between mb-2 shrink-0">
-                    <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500">Kategori Dağılımı</h3>
-                 </div>
-                 {/* w-full h-full ve min-h-0 eklendi */}
-                 <div className="flex-1 w-full h-full min-h-0 flex items-center justify-center">
+             <div className="w-full h-80 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
+                 <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500 mb-2 shrink-0">Kategori Dağılımı</h3>
+                 <div className="flex-1 w-full min-h-0 relative overflow-hidden flex items-center justify-center">
                     {categoryData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
-                                <Pie
-                                    data={categoryData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={90}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                >
+                                <Pie data={categoryData} cx="50%" cy="50%" innerRadius={70} outerRadius={100} paddingAngle={3} dataKey="value">
                                     {categoryData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
                                     ))}
                                 </Pie>
-                                <RechartsTooltip 
-                                    formatter={(value) => formatMoney(value)}
-                                    contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'}}
-                                />
-                                <Legend 
-                                    layout="vertical" 
-                                    verticalAlign="middle" 
-                                    align="right"
-                                    iconType="circle"
-                                    wrapperStyle={{fontSize: '11px', color: '#64748b'}}
-                                />
+                                <Tooltip content={<CustomTooltip />} />
+                                <Legend layout="vertical" verticalAlign="middle" align="right" iconType="circle" wrapperStyle={{fontSize: '11px', color: '#64748b'}} />
                             </PieChart>
                         </ResponsiveContainer>
                     ) : (

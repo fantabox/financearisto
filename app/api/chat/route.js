@@ -38,9 +38,29 @@ function fixCategory(aiCategory) {
 }
 
 export async function POST(req) {
+  // 1. ADIM: Origin Kontrolü (Tarayıcı güvenliği için kalsın)
+  const origin = req.headers.get('origin');
+  const referer = req.headers.get('referer');
+  const allowedOrigins = ["http://localhost:3000", "https://finansasistan.vercel.app", "https://finansasistan.vercel.app/"];
+  
+  const isOriginAllowed = allowedOrigins.some(domain => 
+    (origin && origin.includes(domain)) || (referer && referer.includes(domain))
+  );
+
+  // 2. ADIM: Gizli Anahtar Kontrolü (Kesin Çözüm)
+  // Frontend'den 'x-app-key' adında bir header bekleyeceğiz.
+  const appSecret = req.headers.get('x-app-key');
+  
+  // Eğer Origin yasaklıysa VEYA Şifre yanlışsa reddet
+  if (!isOriginAllowed || appSecret !== process.env.APP_SECRET_KEY) {
+    return NextResponse.json({ error: "Yetkisiz Giriş! 🚫" }, { status: 401 });
+  }
+  // --- GÜVENLİK DUVARI BİTİŞ ---
+
   try {
     const { message } = await req.json();
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    // Modeli değiştirmene gerek yoksa 'flash' hızlıdır, istersen 'pro' yapabilirsin
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
     // TARİH BİLGİSİ
