@@ -273,36 +273,43 @@ export default function Home() {
       
       // 4. Eğer işlem varsa veritabanına kaydet
       if (data.transactions && Array.isArray(data.transactions) && user) {
-        data.transactions.forEach(async (t) => {
-          const safeAmount = parseFloat(t.amount);
-          
-          if (!isNaN(safeAmount)) {
-              let finalDate = new Date(); // Varsayılan: ŞU AN
+        // ✅ FİX: forEach yerine Promise.all kullan (forEach async'i beklemez!)
+        await Promise.all(data.transactions.map(async (t) => {
+          try {
+            const safeAmount = parseFloat(t.amount);
+            
+            if (!isNaN(safeAmount)) {
+                let finalDate = new Date(); // Varsayılan: ŞU AN
 
-              if (t.date) {
-                const aiDate = new Date(t.date);
-                const today = new Date();
-                const isSameDay = aiDate.getDate() === today.getDate() &&
-                                  aiDate.getMonth() === today.getMonth() &&
-                                  aiDate.getFullYear() === today.getFullYear();
+                if (t.date) {
+                  const aiDate = new Date(t.date);
+                  const today = new Date();
+                  const isSameDay = aiDate.getDate() === today.getDate() &&
+                                    aiDate.getMonth() === today.getMonth() &&
+                                    aiDate.getFullYear() === today.getFullYear();
+                  
+                  // Eğer bugün değilse AI tarihini kullan
+                  if (!isSameDay) finalDate = aiDate;
+                }
+
+                const docRef = await addDoc(collection(db, "transactions"), {
+                  uid: user.uid, 
+                  desc: t.desc || "Genel", 
+                  category: t.category || "Diğer", 
+                  amount: safeAmount, 
+                  date: Timestamp.fromDate(finalDate), 
+                  createdAt: serverTimestamp()
+                });
                 
-                // Eğer bugün değilse AI tarihini kullan
-                if (!isSameDay) finalDate = aiDate;
-              }
-
-              await addDoc(collection(db, "transactions"), {
-                uid: user.uid, 
-                desc: t.desc || "Genel", 
-                category: t.category || "Diğer", 
-                amount: safeAmount, 
-                date: Timestamp.fromDate(finalDate), 
-                createdAt: serverTimestamp()
-              });
+                console.log("✅ İşlem kaydedildi:", docRef.id, t.desc, safeAmount);
+            }
+          } catch (txError) {
+            console.error("❌ İşlem kayıt hatası:", txError, t);
           }
-        });
+        }));
       }
     } catch (error) { 
-        console.error("Chat Hatası:", error); // i değişkeni hatası buradaydı muhtemelen
+        console.error("❌ Chat Hatası:", error);
         setMessages(prev => [...prev, { role: 'ai', text: "Bağlantı hatası oluştu.", time: "Now" }]); 
     } finally { 
         setLoading(false); 
