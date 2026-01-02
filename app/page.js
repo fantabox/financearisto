@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 // Firebase
 import { auth, googleProvider, db } from '../firebase'; 
-import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
+import { signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence  } from "firebase/auth";
 import { collection, addDoc, query, where, onSnapshot, deleteDoc, doc, orderBy, serverTimestamp, setDoc, getDoc, Timestamp} from "firebase/firestore";
 // Grafik Kütüphanesi
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';// Kategoriler için Renk Paleti
@@ -56,34 +56,37 @@ export default function Home() {
 
   // --- 1. KULLANICI TAKİBİ ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        listenToTransactions(currentUser.uid);
-        fetchSettings(currentUser.uid);
-      } else {
-        setTransactions([]);
+    // Önce kalıcılık ayarını yapıyoruz:
+    const initAuth = async () => {
+      try {
+        // Tarayıcı kapansa bile oturumu açık tut (LOCAL)
+        await setPersistence(auth, browserLocalPersistence);
+      } catch (error) {
+        console.error("Oturum kalıcılık hatası:", error);
       }
-        setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
 
-  // --- 2. VERİ DİNLEME ---
-  const listenToTransactions = (uid) => {
-    const q = query(
-      collection(db, "transactions"), 
-      where("uid", "==", uid),
-      orderBy("createdAt", "desc")
-    );
-    onSnapshot(q, (snapshot) => {
-      const transData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setTransactions(transData);
-    });
-  };
+      // Sonra kullanıcıyı dinlemeye başla
+      const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
+        if (currentUser) {
+          listenToTransactions(currentUser.uid);
+          fetchSettings(currentUser.uid);
+        } else {
+          setTransactions([]);
+        }
+        // Yükleme ekranını kapat (Kritik nokta)
+        setAuthLoading(false);
+      });
+      return unsubscribe;
+    };
+
+    const unsubscribePromise = initAuth();
+    
+    // Temizlik fonksiyonu
+    return () => {
+      unsubscribePromise.then(unsub => unsub && unsub());
+    };
+  }, []);
 
   const fetchSettings = async (uid) => {
       const docRef = doc(db, "user_settings", uid);
@@ -335,6 +338,16 @@ export default function Home() {
   // --- MAIN UI ---
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden bg-slate-50 text-slate-800 font-['Manrope']">
+      <style jsx>{`
+        @keyframes shimmer {
+          0% { transform: translateX(-150%); }
+          50% { transform: translateX(150%); }
+          100% { transform: translateX(150%); }
+        }
+        .animate-shimmer {
+          animation: shimmer 2.5s infinite; /* 2.5 saniyede bir geçer */
+        }
+      `}</style>
       
       {/* HEADER */}
       <header className="fixed top-0 left-0 w-full z-[40] h-20 flex items-center justify-between border-b border-slate-200 bg-white/80 backdrop-blur-xl px-6 md:px-10">
@@ -348,6 +361,7 @@ export default function Home() {
           <span className="hidden md:inline text-sm font-bold text-slate-700">{user.displayName}</span>
           <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-500"><span className="material-symbols-outlined">logout</span></button>
         </div>
+        
       </header>
 
       {/* MAIN CONTENT */}
@@ -355,67 +369,71 @@ export default function Home() {
         <div className="mx-auto flex max-w-[1200px] flex-col gap-6">
           
           {/* 1. KISIM: ÖZET KART (Cüzdan + Karakter) */}
-          <div className="relative z-0 w-full rounded-2xl bg-white border border-slate-200 p-6 shadow-sm overflow-hidden group hover:shadow-md transition-all">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="flex-1 flex flex-col justify-center gap-3 w-full">
+          <div className="relative z-0 w-full rounded-2xl bg-white border border-slate-200 p-5 shadow-sm overflow-hidden group hover:shadow-md transition-all">
+            {/* DEĞİŞİKLİK BURADA: flex-col yerine flex-row kullanıldı ve gap ayarlandı */}
+            <div className="flex flex-row items-center justify-between gap-4">
+              
+              {/* Sol Taraf: Yazılar ve Bar */}
+              <div className="flex-1 flex flex-col justify-center gap-2 min-w-0">
                 <div>
-                    <h3 className="text-lg font-bold text-slate-800">
+                    {/* Başlık mobilde taşmasın diye truncate eklendi */}
+                    <h3 className="text-base md:text-lg font-bold text-slate-800 truncate">
                         {monthlyFlow < 0 
                             ? "Bütçe Aşıldı! 🚨" 
                              : monthlyFlow < 20000 
-                            ? "Zor Zamanlar Dikkatli Olmalısın! 🚨" 
+                            ? "Dikkatli Ol! 🚨" 
                             : monthlyFlow < 40000
-                                ? "Elinden geleni yapıyorsun! 👍" 
+                                ? "İdare Eder 👍" 
                                 : monthlyFlow < 50000 
-                                    ? "İdare Ediyorsun 🤔" 
+                                    ? "İyi Durumda 🤔" 
                                     : savingsRate < 0.65 
-                                        ? "İyi Gidiyorsun 👍"   // <-- YENİ EKLENEN KISIM
-                                        : "Süper Tasarruf! 🚀"  // %65'i geçince burası çalışır
+                                        ? "İyi Gidiyorsun 👍"
+                                        : "Süper Tasarruf! 🚀"
                         }
                     </h3>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-xs text-slate-500 line-clamp-1">
                         {monthlyFlow < 0 
-                            ? `Bu ay gelirinden ${formatMoney(Math.abs(monthlyFlow))} fazlasını harcadın.` 
-                            : `Bu ay gelirinin %${monthlyIncome > 0 ? Math.round((monthlyFlow / monthlyIncome) * 100) : 0}'sini tasarruf ettin.`}
+                            ? `${formatMoney(Math.abs(monthlyFlow))} aşıldı.` 
+                            : `%${monthlyIncome > 0 ? Math.round((monthlyFlow / monthlyIncome) * 100) : 0} tasarruf.`}
                     </p>
                 </div>
                 
-                {/* YENİ BAR MANTIĞI */}
-                <div className="relative w-full h-4 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                {/* Bar */}
+                <div className="relative w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
                     <div 
-                        className={`h-full transition-all duration-1000 ease-out flex items-center justify-end pr-2 text-[10px] font-bold text-white shadow-sm
+                        className={`h-full transition-all duration-1000 ease-out shadow-sm
                         ${monthlyFlow >= 0 ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 'bg-gradient-to-r from-red-500 to-red-600'}`} 
                         style={{ 
                             width: monthlyFlow >= 0 
-                                ? `${monthlyIncome > 0 ? Math.min((monthlyFlow / monthlyIncome) * 100, 100) : 0}%` // Tasarruf Oranı
-                                : '100%' // Zarardaysa barı tam doldur (Uyarı)
+                                ? `${monthlyIncome > 0 ? Math.min((monthlyFlow / monthlyIncome) * 100, 100) : 0}%` 
+                                : '100%' 
                         }}
                     >
+                      <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-transparent via-white/60 to-transparent -skew-x-12 animate-shimmer"></div>
                     </div>
                 </div>
               </div>
 
-              {/* Karakter Animasyonu */}
-              <div className={`h-18 w-18 shrink-0 flex items-center justify-center rounded-2xl border-4 shadow-xl transition-all 
+              {/* Sağ Taraf: Karakter Animasyonu */}
+              {/* shrink-0: Alan daralsa bile animasyonun küçülmesini engeller */}
+              <div className={`h-16 w-16 md:h-20 md:w-20 shrink-0 flex items-center justify-center rounded-2xl border-2 md:border-4 shadow-sm transition-all 
                 ${monthlyFlow < 0 
-                    ? 'bg-red-50 border-red-200'         // Kötü
+                    ? 'bg-red-50 border-red-200'         
                     : monthlyFlow < 50000 
-                        ? 'bg-orange-50 border-orange-200' // İdare Eder
+                        ? 'bg-orange-50 border-orange-200' 
                         : savingsRate < 0.65
-                            ? 'bg-blue-50 border-blue-200'  // YENİ: İyi Gidiyorsun (Mavi)
-                            : 'bg-emerald-50 border-emerald-200' // Süper
+                            ? 'bg-blue-50 border-blue-200' 
+                            : 'bg-emerald-50 border-emerald-200' 
                 }`}>
                 
                 {monthlyFlow < 0 ? (
-                    <img src="/unhappy.gif" className="h-20 w-20 object-contain scale-x-[-1]"/>
+                    <img src="/unhappy.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/>
                 ) : monthlyFlow < 50000 ? (
-                    <img src="/notr.gif" className="h-20 w-20 object-contain scale-x-[-1]"/>
+                    <img src="/notr.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/>
                 ) : savingsRate < 0.65 ? (
-                    // YENİ: "İyi gidiyorsun" için aynı mutlu gif'i veya başka bir gif'i kullanabilirsiniz
-                    <img src="/good.gif" className="h-20 w-20 object-contain scale-x-[-1]"/>
+                    <img src="/good.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/>
                 ) : (
-                    // %65 üzeri için süper gif (varsa super.gif yoksa happy.gif)
-                    <img src="/happy.gif" className="h-20 w-20 object-contain scale-x-[-1]"/>
+                    <img src="/happy.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/>
                 )}
 
               </div>
