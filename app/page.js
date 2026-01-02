@@ -39,6 +39,7 @@ const CustomTooltip = ({ active, payload, label, }) => {
 };
 
 export default function Home() {
+  const [authLoading, setAuthLoading] = useState(true); // Varsayılan olarak TRUE başlar
   const [user, setUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -63,6 +64,7 @@ export default function Home() {
       } else {
         setTransactions([]);
       }
+        setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -251,6 +253,7 @@ export default function Home() {
 
   // --- DİĞER FONKSİYONLAR ---
   const handleLogin = async () => { await signInWithPopup(auth, googleProvider); };
+
   const handleLogout = async () => { await signOut(auth); setMessages([]); localStorage.removeItem("chatHistory"); };
   
   const handleSend = async (e) => {
@@ -294,6 +297,28 @@ export default function Home() {
   const formatMoney = (amount) => {
     return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(amount);
   };
+  
+  if (authLoading) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-slate-50">
+          <div className="flex flex-col items-center gap-4">
+            {/* Logo / İkon Alanı */}
+            <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-white shadow-xl shadow-blue-500/20">
+              <span className="material-symbols-outlined text-4xl text-blue-600 animate-pulse">calculate</span>
+              {/* Dönen Çerçeve */}
+              <div className="absolute inset-0 rounded-2xl border-2 border-blue-100"></div>
+              <div className="absolute inset-0 rounded-2xl border-t-2 border-blue-600 animate-spin"></div>
+            </div>
+            
+            {/* Yazı */}
+            <div className="text-center">
+              <h2 className="text-lg font-bold text-slate-700">Finans AI</h2>
+              <p className="text-xs text-slate-400 font-medium animate-pulse">Verileriniz hazırlanıyor...</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
   // --- LOGIN UI ---
   if (!user) {
