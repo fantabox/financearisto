@@ -5,22 +5,19 @@ import { auth, googleProvider, db } from '../firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence  } from "firebase/auth";
 import { collection, addDoc, query, where, onSnapshot, deleteDoc, doc, orderBy, serverTimestamp, setDoc, getDoc, Timestamp} from "firebase/firestore";
 // Grafik Kütüphanesi
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';// Kategoriler için Renk Paleti
-// Modern FinTech Renk Paleti
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
+// Kategoriler için Renk Paleti
+const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
 const CustomTooltip = ({ active, payload, label, }) => {
   if (active && payload && payload.length) {
     const title = label ? label : payload[0].name;
-    const isPieChart = !label;
     return (
       <div className="bg-white/95 backdrop-blur-sm p-2 border border-slate-100 shadow-md rounded-lg text-xs z-50">
         <p className="font-bold text-slate-700 mb-1 border-b border-slate-100 pb-1">
           {title}
         </p>
-        {/* İçerik */}
-        <div className="flex flex-col gap-0.5"></div>
         {payload.map((entry, index) => (
           <div key={index} className="flex items-center justify-between gap-3 min-w-[100px]">
             <span className="flex items-center gap-2">
@@ -39,7 +36,8 @@ const CustomTooltip = ({ active, payload, label, }) => {
 };
 
 export default function Home() {
-  const [authLoading, setAuthLoading] = useState(true); // Varsayılan olarak TRUE başlar
+  // --- STATE TANIMLARI ---
+  const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -54,18 +52,48 @@ export default function Home() {
   const chatEndRef = useRef(null);
   const [chartView, setChartView] = useState('monthly');
 
-  // --- 1. KULLANICI TAKİBİ ---
+  const listenToTransactions = (uid) => {
+    const q = query(
+      collection(db, "transactions"),
+      where("uid", "==", uid)
+      // orderBy sildik, JS ile sıralıyoruz.
+    );
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const transactionsData = [];
+      querySnapshot.forEach((doc) => {
+        transactionsData.push({ ...doc.data(), id: doc.id });
+      });
+
+      // --- SIRALAMA MANTIĞI ---
+      transactionsData.sort((a, b) => {
+        // 1. Önce Tarihe Göre Sırala
+        const dateA = a.date && a.date.toDate ? a.date.toDate() : new Date(a.date || 0);
+        const dateB = b.date && b.date.toDate ? b.date.toDate() : new Date(b.date || 0);
+        
+        // Eğer tarihler tamamen eşitse (milisaniyesine kadar), oluşturulma zamanına bak
+        if (dateB.getTime() === dateA.getTime()) {
+            const createdA = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate() : new Date(0);
+            const createdB = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate() : new Date(0);
+            return createdB - createdA;
+        }
+
+        return dateB - dateA; // En yeni tarih en üstte
+      });
+
+      setTransactions(transactionsData);
+    });
+  };
+
+  // --- KULLANICI DOĞRULAMA (AUTH) ---
   useEffect(() => {
-    // Önce kalıcılık ayarını yapıyoruz:
     const initAuth = async () => {
       try {
-        // Tarayıcı kapansa bile oturumu açık tut (LOCAL)
         await setPersistence(auth, browserLocalPersistence);
       } catch (error) {
-        console.error("Oturum kalıcılık hatası:", error);
+        console.error("Kalıcılık hatası:", error);
       }
 
-      // Sonra kullanıcıyı dinlemeye başla
       const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
         setUser(currentUser);
         if (currentUser) {
@@ -74,20 +102,17 @@ export default function Home() {
         } else {
           setTransactions([]);
         }
-        // Yükleme ekranını kapat (Kritik nokta)
+        // Yükleme animasyonunu bitir
         setAuthLoading(false);
       });
       return unsubscribe;
     };
 
     const unsubscribePromise = initAuth();
-    
-    // Temizlik fonksiyonu
-    return () => {
-      unsubscribePromise.then(unsub => unsub && unsub());
-    };
+    return () => { unsubscribePromise.then(unsub => unsub && unsub()); };
   }, []);
 
+  // --- AYARLAR VE DİĞER FONKSİYONLAR ---
   const fetchSettings = async (uid) => {
       const docRef = doc(db, "user_settings", uid);
       const docSnap = await getDoc(docRef);
@@ -105,16 +130,11 @@ export default function Home() {
     } catch (error) { console.error(error); }
   };
 
-  /// --- HESAPLAMALAR ) ---
-  
-  // 1. Cüzdan Bakiyesi için TÜM zamanları hesapla
+  // --- HESAPLAMALAR ---
   const allTimeIncome = transactions.filter(t => Number(t.amount) > 0).reduce((acc, t) => acc + Number(t.amount), 0);
   const allTimeExpense = transactions.filter(t => Number(t.amount) < 0).reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
-  
-  // Toplam Bakiye (Cüzdan)
   const totalBalance = (allTimeIncome - allTimeExpense) + startingBalance;
 
-  // 2. Kartlar ve Bar için SADECE BU AYI hesapla
   const now = new Date();
   const currentMonth = now.getMonth(); 
   const currentYear = now.getFullYear();
@@ -122,20 +142,16 @@ export default function Home() {
 
   const thisMonthTransactions = transactions.filter(t => {
       if (!t.date) return false;
-      const tDate = t.date.toDate();
+      const tDate = t.date.toDate ? t.date.toDate() : new Date(t.date || 0);
       return tDate.getMonth() === currentMonth && tDate.getFullYear() === currentYear;
   });
 
   const monthlyIncome = thisMonthTransactions.filter(t => t.amount > 0).reduce((acc, t) => acc + t.amount, 0);
   const monthlyExpense = thisMonthTransactions.filter(t => t.amount < 0).reduce((acc, t) => acc + Math.abs(t.amount), 0);
-
-  // EKSİK OLAN SATIR BU (Artık eklendi):
   const monthlyFlow = monthlyIncome - monthlyExpense;
-
-  // Tasarruf oranını hesapla (0 ile 1 arasında bir sayı döner, örn: 0.65)
   const savingsRate = monthlyIncome > 0 ? monthlyFlow / monthlyIncome : 0;
 
-  // --- GRAFİK 1: GÜNLÜK AKIŞ (Son 30 Gün) ---
+  // --- GRAFİK VERİ HAZIRLAMA ---
   const processChartData = () => {
     const last30Days = [];
     for (let i = 29; i >= 0; i--) {
@@ -145,7 +161,7 @@ export default function Home() {
         
         const dayTransactions = transactions.filter(t => {
             if(!t.date) return false;
-            const tDate = t.date.toDate();
+            const tDate = t.date.toDate ? t.date.toDate() : new Date(t.date || 0);
             return tDate.getDate() === d.getDate() && tDate.getMonth() === d.getMonth();
         });
 
@@ -157,163 +173,182 @@ export default function Home() {
     return last30Days;
   };
 
-  // --- GRAFİK 2: KATEGORİ DAĞILIMI (Donut Chart) ---
   const processCategoryData = () => {
     const expenses = transactions.filter(t => t.amount < 0);
     const categoryMap = {};
-
     expenses.forEach(t => {
         const cat = t.category || "Diğer";
         if (!categoryMap[cat]) categoryMap[cat] = 0;
         categoryMap[cat] += Math.abs(t.amount);
     });
-
-    const data = Object.keys(categoryMap).map(key => ({
-        name: key,
-        value: categoryMap[key]
-    }));
-
+    const data = Object.keys(categoryMap).map(key => ({ name: key, value: categoryMap[key] }));
     return data.sort((a, b) => b.value - a.value);
   };
   
   const chartData = useMemo(() => processChartData(), [transactions]);
   const categoryData = useMemo(() => processCategoryData(), [transactions]);
 
-  // --- YENİ: AYLIK TREND (DALGA GRAFİĞİ İÇİN) ---
   const processMonthlyTrendData = () => {
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
-    // Ayın kaç çektiğini bul (Örn: Şubat 28, Mart 31)
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    
     const data = [];
-    
-    // Ayın 1'inden son gününe kadar döngü
     for (let i = 1; i <= daysInMonth; i++) {
         const dayTransactions = transactions.filter(t => {
             if(!t.date) return false;
-            const tDate = t.date.toDate();
+            const tDate = t.date.toDate ? t.date.toDate() : new Date(t.date || 0);
             return tDate.getDate() === i && tDate.getMonth() === currentMonth && tDate.getFullYear() === currentYear;
         });
-
         const dayIncome = dayTransactions.filter(t => t.amount > 0).reduce((acc, t) => acc + t.amount, 0);
         const dayExpense = dayTransactions.filter(t => t.amount < 0).reduce((acc, t) => acc + Math.abs(t.amount), 0);
-        
-        // O günkü Net Akış (İstersen kümülatif de yapabiliriz ama dalga için günlük net akış güzel durur)
         const netFlow = dayIncome - dayExpense; 
-
-        // Grafikte boş günleri 0 olarak göstermek yerine sadece bugüne kadar olanları göstermek istersen:
-        // if (i > now.getDate()) break; // Gelecek günleri gösterme (Tercihe bağlı)
-
         data.push({ day: i, net: netFlow, income: dayIncome, expense: dayExpense });
     }
     return data;
   };
 
-  // Veriyi değişkene ata (useMemo kullanıyorsan içine alabilirsin)
-  const monthlyTrendData = processMonthlyTrendData();
-
-  
-  // --- YENİ: YILLIK TREND (12 AY) ---
   const processYearlyTrendData = () => {
     const currentYear = new Date().getFullYear();
-    const months = [
-      "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
-      "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
-    ];
-    
+    const months = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
     const data = months.map((monthName, index) => {
         const monthTransactions = transactions.filter(t => {
             if(!t.date) return false;
-            const tDate = t.date.toDate();
-            // Sadece o yıla ve o aya ait işlemleri al
+            const tDate = t.date.toDate ? t.date.toDate() : new Date(t.date || 0);
             return tDate.getMonth() === index && tDate.getFullYear() === currentYear;
         });
-
         const mIncome = monthTransactions.filter(t => t.amount > 0).reduce((acc, t) => acc + t.amount, 0);
         const mExpense = monthTransactions.filter(t => t.amount < 0).reduce((acc, t) => acc + Math.abs(t.amount), 0);
         const netFlow = mIncome - mExpense;
-
-        return { 
-          name: monthName, // X ekseninde görünecek isim
-          shortName: (index + 1).toString(), // Mobilde yer kaplamasın diye rakam
-          net: netFlow, 
-          income: mIncome, 
-          expense: mExpense 
-        };
+        return { name: monthName, shortName: (index + 1).toString(), net: netFlow, income: mIncome, expense: mExpense };
     });
     return data;
   };
   
-  // Hangi verinin gösterileceğini seçen değişken
   const displayData = useMemo(() => {
-    if (chartView === 'yearly') {
-      return processYearlyTrendData();
-    }
-    return processMonthlyTrendData(); // Mevcut fonksiyonunuz
+    if (chartView === 'yearly') return processYearlyTrendData();
+    return processMonthlyTrendData();
   }, [chartView, transactions]);
 
-  // --- DİĞER FONKSİYONLAR ---
+  // --- ACTION HANDLERS ---
   const handleLogin = async () => { await signInWithPopup(auth, googleProvider); };
-
   const handleLogout = async () => { await signOut(auth); setMessages([]); localStorage.removeItem("chatHistory"); };
   
   const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
-    const userMsg = { role: 'user', text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) };
+    
+    // 1. Kullanıcı mesajını ekle
+    const userMsg = { 
+        role: 'user', 
+        text: input, 
+        time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) 
+    };
+    
     setMessages(prev => [...prev, userMsg]);
     setInput("");
     setLoading(true);
+
     try {
+      // 2. API'ye gönder (İsim bilgisiyle birlikte)
       const res = await fetch('/api/chat', { 
-    method: 'POST', 
-    headers: { 
-        'Content-Type': 'application/json',
-        // Next.js client tarafında env kullanmak için NEXT_PUBLIC_ ön eki gerekir
-        'x-app-key': process.env.NEXT_PUBLIC_APP_SECRET_KEY 
-    }, 
-    body: JSON.stringify({ message: userMsg.text }) 
-});
+        method: 'POST', 
+        headers: { 
+            'Content-Type': 'application/json',
+            'x-app-key': process.env.NEXT_PUBLIC_APP_SECRET_KEY 
+        }, 
+        body: JSON.stringify({ 
+            message: userMsg.text,
+            userName: user.displayName || "Dostum" 
+        }) 
+      });
+      
       const data = await res.json();
-      setMessages(prev => [...prev, { role: 'ai', text: data.reply || "Kaydedildi.", time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }]);
+
+      // 3. Yapay Zekanın Cevabını Ekle (ÖNEMLİ: data.reply kullanıyoruz)
+      setMessages(prev => [...prev, { 
+          role: 'ai', 
+          text: data.reply || "İşleminizi kaydettim.", // Eğer cevap boş gelirse bunu yaz
+          time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) 
+      }]);
+      
+      // 4. Eğer işlem varsa veritabanına kaydet
       if (data.transactions && Array.isArray(data.transactions) && user) {
         data.transactions.forEach(async (t) => {
           const safeAmount = parseFloat(t.amount);
+          
           if (!isNaN(safeAmount)) {
-              let transactionDate = new Date();
-              if (t.date) transactionDate = new Date(t.date);
+              let finalDate = new Date(); // Varsayılan: ŞU AN
+
+              if (t.date) {
+                const aiDate = new Date(t.date);
+                const today = new Date();
+                const isSameDay = aiDate.getDate() === today.getDate() &&
+                                  aiDate.getMonth() === today.getMonth() &&
+                                  aiDate.getFullYear() === today.getFullYear();
+                
+                // Eğer bugün değilse AI tarihini kullan
+                if (!isSameDay) finalDate = aiDate;
+              }
+
               await addDoc(collection(db, "transactions"), {
-                uid: user.uid, desc: t.desc || "Genel", category: t.category || "Diğer", amount: safeAmount, date: Timestamp.fromDate(transactionDate), createdAt: serverTimestamp()
+                uid: user.uid, 
+                desc: t.desc || "Genel", 
+                category: t.category || "Diğer", 
+                amount: safeAmount, 
+                date: Timestamp.fromDate(finalDate), 
+                createdAt: serverTimestamp()
               });
           }
         });
       }
-    } catch (error) { console.error(error); setMessages(prev => [...prev, { role: 'ai', text: "Hata oluştu.", time: "Now" }]); } finally { setLoading(false); }
+    } catch (error) { 
+        console.error("Chat Hatası:", error); // i değişkeni hatası buradaydı muhtemelen
+        setMessages(prev => [...prev, { role: 'ai', text: "Bağlantı hatası oluştu.", time: "Now" }]); 
+    } finally { 
+        setLoading(false); 
+    }
   };
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isChatOpen]);
-  const confirmDelete = (id) => { setItemToDelete(id); setModalOpen(true); };
-  const handleDelete = async () => { if (!itemToDelete) return; await deleteDoc(doc(db, "transactions", itemToDelete)); setModalOpen(false); setItemToDelete(null); };
+
+  // --- SİLME İŞLEMİ ---
+  const confirmDelete = (id) => { 
+    if(!id) {
+        console.error("Silinecek ID bulunamadı!");
+        return;
+    }
+    setItemToDelete(id); 
+    setModalOpen(true); 
+  };
+  
+  const handleDelete = async () => { 
+    if (!itemToDelete) return; 
+    try {
+        await deleteDoc(doc(db, "transactions", itemToDelete)); 
+        setModalOpen(false); 
+        setItemToDelete(null); 
+    } catch(err) {
+        console.error("Silme hatası:", err);
+    }
+  };
   
   const formatMoney = (amount) => {
     return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(amount);
   };
   
+  // --- UI RENDER ---
+
+  // 1. Loading Ekranı
   if (authLoading) {
       return (
         <div className="flex min-h-screen items-center justify-center bg-slate-50">
           <div className="flex flex-col items-center gap-4">
-            {/* Logo / İkon Alanı */}
             <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-white shadow-xl shadow-blue-500/20">
               <span className="material-symbols-outlined text-4xl text-blue-600 animate-pulse">calculate</span>
-              {/* Dönen Çerçeve */}
               <div className="absolute inset-0 rounded-2xl border-2 border-blue-100"></div>
               <div className="absolute inset-0 rounded-2xl border-t-2 border-blue-600 animate-spin"></div>
             </div>
-            
-            {/* Yazı */}
             <div className="text-center">
               <h2 className="text-lg font-bold text-slate-700">Finans AI</h2>
               <p className="text-xs text-slate-400 font-medium animate-pulse">Verileriniz hazırlanıyor...</p>
@@ -321,9 +356,9 @@ export default function Home() {
           </div>
         </div>
       );
-    }
+  }
 
-  // --- LOGIN UI ---
+  // 2. Login Ekranı
   if (!user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 relative overflow-hidden">
@@ -335,7 +370,7 @@ export default function Home() {
     );
   }
 
-  // --- MAIN UI ---
+  // 3. Ana Ekran
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden bg-slate-50 text-slate-800 font-['Manrope']">
       <style jsx>{`
@@ -345,7 +380,7 @@ export default function Home() {
           100% { transform: translateX(150%); }
         }
         .animate-shimmer {
-          animation: shimmer 2.5s infinite; /* 2.5 saniyede bir geçer */
+          animation: shimmer 2.5s infinite;
         }
       `}</style>
       
@@ -361,111 +396,55 @@ export default function Home() {
           <span className="hidden md:inline text-sm font-bold text-slate-700">{user.displayName}</span>
           <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-500"><span className="material-symbols-outlined">logout</span></button>
         </div>
-        
       </header>
 
       {/* MAIN CONTENT */}
       <main className="relative z-0 flex-1 overflow-y-auto p-4 pt-24 mt-0 pb-32">
         <div className="mx-auto flex max-w-[1200px] flex-col gap-6">
           
-          {/* 1. KISIM: ÖZET KART (Cüzdan + Karakter) */}
+          {/* 1. ÖZET KART */}
           <div className="relative z-0 w-full rounded-2xl bg-white border border-slate-200 p-5 shadow-sm overflow-hidden group hover:shadow-md transition-all">
-            {/* DEĞİŞİKLİK BURADA: flex-col yerine flex-row kullanıldı ve gap ayarlandı */}
             <div className="flex flex-row items-center justify-between gap-4">
-              
-              {/* Sol Taraf: Yazılar ve Bar */}
               <div className="flex-1 flex flex-col justify-center gap-2 min-w-0">
                 <div>
-                    {/* Başlık mobilde taşmasın diye truncate eklendi */}
                     <h3 className="text-base md:text-lg font-bold text-slate-800 truncate">
-                        {monthlyFlow < 0 
-                            ? "Bütçe Aşıldı! 🚨" 
-                             : monthlyFlow < 20000 
-                            ? "Dikkatli Ol! 🚨" 
-                            : monthlyFlow < 40000
-                                ? "İdare Eder 👍" 
-                                : monthlyFlow < 50000 
-                                    ? "İyi Durumda 🤔" 
-                                    : savingsRate < 0.65 
-                                        ? "İyi Gidiyorsun 👍"
-                                        : "Süper Tasarruf! 🚀"
-                        }
+                        {monthlyFlow < 0 ? "Bütçe Aşıldı! 🚨" : monthlyFlow < 20000 ? "Dikkatli Ol! 🚨" : monthlyFlow < 40000 ? "İdare Eder 👍" : monthlyFlow < 50000 ? "İyi Durumda 🤔" : savingsRate < 0.65 ? "İyi Gidiyorsun 👍" : "Süper Tasarruf! 🚀"}
                     </h3>
                     <p className="text-xs text-slate-500 line-clamp-1">
-                        {monthlyFlow < 0 
-                            ? `${formatMoney(Math.abs(monthlyFlow))} aşıldı.` 
-                            : `%${monthlyIncome > 0 ? Math.round((monthlyFlow / monthlyIncome) * 100) : 0} tasarruf.`}
+                        {monthlyFlow < 0 ? `${formatMoney(Math.abs(monthlyFlow))} aşıldı.` : `%${monthlyIncome > 0 ? Math.round((monthlyFlow / monthlyIncome) * 100) : 0} tasarruf.`}
                     </p>
                 </div>
-                
-                {/* Bar */}
                 <div className="relative w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
                     <div 
-                        className={`h-full transition-all duration-1000 ease-out shadow-sm
+                        className={`relative h-full transition-all duration-1000 ease-out shadow-sm overflow-hidden
                         ${monthlyFlow >= 0 ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 'bg-gradient-to-r from-red-500 to-red-600'}`} 
-                        style={{ 
-                            width: monthlyFlow >= 0 
-                                ? `${monthlyIncome > 0 ? Math.min((monthlyFlow / monthlyIncome) * 100, 100) : 0}%` 
-                                : '100%' 
-                        }}
+                        style={{ width: monthlyFlow >= 0 ? `${monthlyIncome > 0 ? Math.min((monthlyFlow / monthlyIncome) * 100, 100) : 0}%` : '100%' }}
                     >
                       <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-transparent via-white/60 to-transparent -skew-x-12 animate-shimmer"></div>
                     </div>
                 </div>
               </div>
-
-              {/* Sağ Taraf: Karakter Animasyonu */}
-              {/* shrink-0: Alan daralsa bile animasyonun küçülmesini engeller */}
               <div className={`h-16 w-16 md:h-20 md:w-20 shrink-0 flex items-center justify-center rounded-2xl border-2 md:border-4 shadow-sm transition-all 
-                ${monthlyFlow < 0 
-                    ? 'bg-red-50 border-red-200'         
-                    : monthlyFlow < 50000 
-                        ? 'bg-orange-50 border-orange-200' 
-                        : savingsRate < 0.65
-                            ? 'bg-blue-50 border-blue-200' 
-                            : 'bg-emerald-50 border-emerald-200' 
-                }`}>
-                
-                {monthlyFlow < 0 ? (
-                    <img src="/unhappy.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/>
-                ) : monthlyFlow < 50000 ? (
-                    <img src="/notr.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/>
-                ) : savingsRate < 0.65 ? (
-                    <img src="/good.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/>
-                ) : (
-                    <img src="/happy.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/>
-                )}
-
+                ${monthlyFlow < 0 ? 'bg-red-50 border-red-200' : monthlyFlow < 50000 ? 'bg-orange-50 border-orange-200' : savingsRate < 0.65 ? 'bg-blue-50 border-blue-200' : 'bg-emerald-50 border-emerald-200' }`}>
+                {monthlyFlow < 0 ? <img src="/unhappy.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/> : 
+                 monthlyFlow < 50000 ? <img src="/notr.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/> : 
+                 savingsRate < 0.65 ? <img src="/good.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/> : 
+                 <img src="/happy.gif" className="h-14 w-14 md:h-16 md:w-16 object-contain scale-x-[-1]"/>}
               </div>
             </div>
           </div>
           
-          {/* 2. KISIM: GRAFİKLER (Dalga) */}
-          <div className="w-full h-72 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mt-6">
-              
-              {/* Başlık ve Filtre Butonları */}
+          {/* 2. AREA CHART (DALGA) */}
+          <div className="w-full h-72 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mt-0">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500">
                   {chartView === 'monthly' ? 'Bu Ayın Gidişatı' : 'Yıllık Genel Bakış'}
                 </h3>
-                
-                {/* Filtre Switch */}
                 <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold">
-                  <button 
-                    onClick={() => setChartView('monthly')}
-                    className={`px-3 py-1.5 rounded-md transition-all ${chartView === 'monthly' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
-                  >
-                    Bu Ay
-                  </button>
-                  <button 
-                    onClick={() => setChartView('yearly')}
-                    className={`px-3 py-1.5 rounded-md transition-all ${chartView === 'yearly' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
-                  >
-                    Yıl
-                  </button>
+                  <button onClick={() => setChartView('monthly')} className={`px-3 py-1.5 rounded-md transition-all ${chartView === 'monthly' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Bu Ay</button>
+                  <button onClick={() => setChartView('yearly')} className={`px-3 py-1.5 rounded-md transition-all ${chartView === 'yearly' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Yıl</button>
                 </div>
               </div>
-
               <div className="w-full h-full min-h-[200px]">
                   <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={displayData} margin={{ top: 10, right: 0, left: -20, bottom: 25 }}>
@@ -475,41 +454,23 @@ export default function Home() {
                                   <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                               </linearGradient>
                           </defs>
-                          
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          
-                          {/* X EKSENİ: Görünüm 'yearly' ise ay isimlerini, 'monthly' ise günleri gösterir */}
                           <XAxis 
                             dataKey={chartView === 'yearly' ? "name" : "day"} 
-                            axisLine={false} 
-                            tickLine={false} 
-                            tick={{fill: '#94a3b8', fontSize: 11}} 
-                            interval={chartView === 'yearly' ? 0 : 'preserveStartEnd'} // Yıllık modda tüm ayları göster
-                            tickFormatter={(val) => chartView === 'yearly' ? val.substring(0, 3) : val} // Ayları kısalt (Oca, Şub...)
+                            axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} 
+                            interval={chartView === 'yearly' ? 0 : 'preserveStartEnd'}
+                            tickFormatter={(val) => chartView === 'yearly' ? val.substring(0, 3) : val}
                           />
-                          
                           <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} tickFormatter={(value) => `¥${value/1000}k`}/>
-                          
                           <Tooltip content={<CustomTooltip />} />
-                          
-                          <Area 
-                              type="monotone" 
-                              dataKey="net" 
-                              stroke="#3b82f6" 
-                              fillOpacity={1} 
-                              fill="url(#colorNet)" 
-                              strokeWidth={3}
-                              name="Net Akış"
-                              animationDuration={1000} // Geçiş animasyonu
-                          />
+                          <Area type="monotone" dataKey="net" stroke="#3b82f6" fillOpacity={1} fill="url(#colorNet)" strokeWidth={3} name="Net Akış" animationDuration={1000} />
                       </AreaChart>
                   </ResponsiveContainer>
               </div>
           </div>
 
-          {/* 2.1 KISIM: GRAFİKLER (YAN YANA DÜZEN) */}
+          {/* 3. İKİLİ GRAFİK (BAR + PIE) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             {/* SOL GRAFİK: BAR CHART */}
              <div className="w-full h-80 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
                  <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4 shrink-0">30 Günlük Akış</h3>
                  <div className="flex-1 w-full min-h-0 relative overflow-hidden">
@@ -526,7 +487,6 @@ export default function Home() {
                  </div>
              </div>
 
-             {/* SAĞ GRAFİK: DONUT CHART */}
              <div className="w-full h-80 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
                  <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500 mb-2 shrink-0">Kategori Dağılımı</h3>
                  <div className="flex-1 w-full min-h-0 relative overflow-hidden flex items-center justify-center">
@@ -549,7 +509,7 @@ export default function Home() {
              </div>
           </div>
 
-          {/* 3. KISIM: İSTATİSTİK KARTLARI (GÜNCELLENDİ) */}
+          {/* 4. İSTATİSTİK KARTLARI */}
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div className="rounded-2xl p-6 border border-slate-200 bg-white shadow-sm h-32 flex flex-col justify-between relative">
                <div className="flex justify-between items-start">
@@ -567,7 +527,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 4. KISIM: CÜZDAN & GEÇMİŞ */}
+          {/* 5. CÜZDAN & GEÇMİŞ LİSTESİ */}
           <div className="flex flex-col gap-6 rounded-2xl p-6 border border-slate-200 bg-white shadow-sm">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <h3 className="text-lg font-bold text-slate-800">Cüzdan Durumu</h3>
@@ -580,18 +540,19 @@ export default function Home() {
               <div className="flex flex-col gap-3">
                   <h3 className="text-slate-800 font-bold text-sm uppercase tracking-wide">Son Hareketler</h3>
                   {transactions.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl">
+                    <div key={t.id || Math.random()} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl">
                          <div className="flex items-center gap-3">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${t.amount < 0 ? 'bg-orange-50 text-orange-500' : 'bg-green-50 text-green-500'}`}>
                                 <span className="material-symbols-outlined text-[20px]">{t.amount < 0 ? 'shopping_cart' : 'payments'}</span>
                             </div>
                             <div>
                                 <div className="text-sm font-bold text-slate-700">{t.desc}</div>
-                                <div className="text-[10px] text-slate-400">{t.category} • {t.date?.toDate().toLocaleDateString('ja-JP') || 'Bugün'}</div>
+                                <div className="text-[10px] text-slate-400">{t.category} • {t.date?.toDate ? t.date.toDate().toLocaleDateString('ja-JP') : 'Tarih Yok'}</div>
                             </div>
                          </div>
                          <div className="flex items-center gap-3">
                             <span className={`text-sm font-bold ${t.amount < 0 ? 'text-slate-800' : 'text-green-600'}`}>{t.amount < 0 ? '' : '+'}{formatMoney(t.amount)}</span>
+                            {/* Silme Butonu */}
                             <button onClick={() => confirmDelete(t.id)} className="text-slate-300 hover:text-red-500"><span className="material-symbols-outlined text-lg">delete</span></button>
                          </div>
                     </div>
@@ -601,7 +562,7 @@ export default function Home() {
         </div>
       </main>
 
-      {/* CHAT VE MODALLAR AYNI */}
+      {/* CHAT BÖLÜMÜ */}
       <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end gap-4">
         <div className={`bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col transition-all duration-300 ease-in-out origin-bottom-right ${isChatOpen ? 'w-[350px] h-[500px] opacity-100 scale-100' : 'w-0 h-0 opacity-0 scale-50 pointer-events-none'}`}>
             <div className="bg-blue-600 p-4 flex items-center justify-between text-white shrink-0">
@@ -627,9 +588,32 @@ export default function Home() {
         </button>
       </div>
       
-      {modalOpen && <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"><div className="bg-white p-6 rounded-2xl"><h3 className="font-bold mb-4">Silinsin mi?</h3><button onClick={handleDelete} className="bg-red-500 text-white px-4 py-2 rounded-lg">Sil</button><button onClick={()=>setModalOpen(false)} className="ml-2 px-4 py-2">İptal</button></div></div>}
-      {isSettingsOpen && <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"><div className="bg-white p-6 rounded-2xl"><h3 className="font-bold mb-4">Devir Bakiyesi</h3><input type="number" value={tempBalance} onChange={(e)=>setTempBalance(e.target.value)} className="border p-2 w-full rounded mb-4"/><button onClick={handleSaveSettings} className="bg-blue-600 text-white px-4 py-2 rounded-lg">Kaydet</button><button onClick={()=>setIsSettingsOpen(false)} className="ml-2 px-4 py-2">İptal</button></div></div>}
+      {/* SİLME MODALI */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+            <div className="bg-white p-6 rounded-2xl shadow-2xl transform transition-all scale-100">
+                <h3 className="font-bold mb-4 text-lg text-slate-800">Bu işlem silinsin mi?</h3>
+                <div className="flex justify-end gap-2">
+                    <button onClick={handleDelete} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-bold transition-colors">Sil</button>
+                    <button onClick={()=>setModalOpen(false)} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-bold transition-colors">İptal</button>
+                </div>
+            </div>
+        </div>
+      )}
+      
+      {/* AYARLAR MODALI */}
+      {isSettingsOpen && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+            <div className="bg-white p-6 rounded-2xl shadow-2xl w-80">
+                <h3 className="font-bold mb-4 text-slate-800">Devir Bakiyesi</h3>
+                <input type="number" value={tempBalance} onChange={(e)=>setTempBalance(e.target.value)} className="border p-2 w-full rounded-lg mb-4 focus:ring-2 focus:ring-blue-500 outline-none"/>
+                <div className="flex justify-end gap-2">
+                    <button onClick={handleSaveSettings} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold">Kaydet</button>
+                    <button onClick={()=>setIsSettingsOpen(false)} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-lg font-bold">İptal</button>
+                </div>
+            </div>
+          </div>
+      )}
     </div>
   );
-  
 }
