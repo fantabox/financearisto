@@ -254,8 +254,7 @@ export default function Home() {
       const res = await fetch('/api/chat', { 
         method: 'POST', 
         headers: { 
-            'Content-Type': 'application/json',
-            'x-app-key': process.env.NEXT_PUBLIC_APP_SECRET_KEY 
+            'Content-Type': 'application/json'
         }, 
         body: JSON.stringify({ 
             message: userMsg.text,
