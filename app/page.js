@@ -500,7 +500,7 @@ export default function Home() {
                     >
                         <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center text-xl">🇺🇸</div>
                         <div>
-                            <h3 className="font-bold text-slate-800 group-hover:text-blue-700">English (USA)</h3>
+                            <h3 className="font-bold text-slate-800 group-hover:text-blue-700">ENG (USA)</h3>
                             <p className="text-xs text-slate-500">Currency: $ (USD)</p>
                         </div>
                         <div className="ml-auto opacity-0 group-hover:opacity-100 text-blue-600"><span className="material-symbols-outlined">check_circle</span></div>
