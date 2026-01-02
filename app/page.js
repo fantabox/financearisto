@@ -588,4 +588,5 @@ export default function Home() {
       {isSettingsOpen && <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"><div className="bg-white p-6 rounded-2xl"><h3 className="font-bold mb-4">Devir Bakiyesi</h3><input type="number" value={tempBalance} onChange={(e)=>setTempBalance(e.target.value)} className="border p-2 w-full rounded mb-4"/><button onClick={handleSaveSettings} className="bg-blue-600 text-white px-4 py-2 rounded-lg">Kaydet</button><button onClick={()=>setIsSettingsOpen(false)} className="ml-2 px-4 py-2">İptal</button></div></div>}
     </div>
   );
+  
 }

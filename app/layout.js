@@ -4,12 +4,17 @@ import "./globals.css";
 export const metadata = {
   title: "Finans AI",
   description: "Yapay Zeka Destekli Muhasebe",
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="tr">
       <head>
+        <meta name="theme-color" content="#ffffff" />
         {/* Google Fonts Bağlantıları (Düzeltilmiş) */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
