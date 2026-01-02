@@ -1,54 +1,136 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 
-// --- KATEGORİ VE AÇIKLAMA DÜZELTİCİ (GÜNCELLENDİ) ---
-function fixCategory(aiCategory, desc) {
-    const cat = (aiCategory || "").toLowerCase();
-    const description = (desc || "").toLowerCase();
+// Kategori Standartlaştırma Fonksiyonu
+function fixCategory(aiCategory) {
+    if (!aiCategory) return "📦 Diğer";
+    
+    const cat = aiCategory.toLowerCase();
 
-    // 1. EĞLENCE & SOSYAL (Sushiro buraya girer)
-    if (description.includes("sushiro") || description.includes("restoran") || description.includes("sinema") || description.includes("bar") || description.includes("oyun") || description.includes("netflix") || description.includes("spotify")) {
+    // Anahtar kelimelere göre doğru formatı zorla
+    // İyileştirme: "sushiro" ve "izakaya" gibi kelimeler de eklendi.
+    if (cat.includes("eğlence") || cat.includes("sosyal") || cat.includes("market") || cat.includes("restoran") || cat.includes("sinema") || cat.includes("tatil") || cat.includes("kafe") || cat.includes("sushiro") || cat.includes("izakaya")) {
         return "🎉 Eğlence/Sosyal";
     }
-
-    // 2. YEME - İÇME (İÇECEK, KAHVE, SU BURAYA EKLENDİ)
-    // Hem market isimleri HEM DE ürün isimleri burada
-    if (description.includes("market") || description.includes("bakkal") || description.includes("konbini") || description.includes("7-eleven") || description.includes("lawson") || description.includes("aeon") || 
-        description.includes("içecek") || description.includes("kahve") || description.includes("çay") || description.includes("su ") || description === "su" || description.includes("ekmek") || description.includes("yemek") || description.includes("gıda")) {
+    if (cat.includes("yeme") || cat.includes("içme") || cat.includes("bakkal") || cat.includes("gıda") || cat.includes("yemek")) {
         return "🍔 Yeme-İçme";
     }
-
-    // 3. ULAŞIM
-    if (description.includes("tren") || description.includes("otobüs") || description.includes("metro") || description.includes("suica") || description.includes("pasmo") || description.includes("taksi") || description.includes("benzin")) {
-        return "🚌 Ulaşım";
-    }
-
-    // 4. EV & FATURA
-    if (description.includes("kira") || description.includes("elektrik") || description.includes("internet") || description.includes("telefon") || description.includes("fatura")) {
+    if (cat.includes("ev") || cat.includes("yaşam") || cat.includes("kira") || cat.includes("aidat") || cat.includes("mobilya")) {
         return "🏠 Ev/Yaşam";
     }
+    if (cat.includes("ulaşım") || cat.includes("benzin") || cat.includes("taksi") || cat.includes("otobüs") || cat.includes("araba") || cat.includes("tren") || cat.includes("suica") || cat.includes("pasmo")) {
+        return "🚌 Ulaşım";
+    }
+    if (cat.includes("fatura") || cat.includes("elektrik") || cat.includes("su") || cat.includes("internet") || cat.includes("telefon") || cat.includes("gaz")) {
+        return "💡 Faturalar";
+    }
+    if (cat.includes("alışveriş") || cat.includes("giyim") || cat.includes("kıyafet") || cat.includes("teknoloji") || cat.includes("kozmetik")) {
+        return "🛍️ Alışveriş";
+    }
+    if (cat.includes("sağlık") || cat.includes("doktor") || cat.includes("eczane") || cat.includes("spor") || cat.includes("hastane")) {
+        return "🏥 Sağlık";
+    }
+    if (cat.includes("gelir") || cat.includes("maaş") || cat.includes("yatırım") || cat.includes("borç") || cat.includes("alacak")) {
+        return "💰 Gelir/Yatırım";
+    }
 
-    // 5. YEDEK KONTROLLER (Kategori İsmine Göre)
-    if (cat.includes("eğlence") ||  cat.includes("sosyal") || cat.includes("restoran")) return "🎉 Eğlence/Sosyal";
-    if (cat.includes("yeme") || cat.includes("içme") ||  cat.includes("gıda") || cat.includes("market")) return "🍔 Yeme-İçme";
-    if (cat.includes("ev") || cat.includes("yaşam") || cat.includes("kira") || cat.includes("fatura")) return "🏠 Ev/Yaşam";
-    if (cat.includes("ulaşım") || cat.includes("benzin") || cat.includes("seyahat")) return "🚌 Ulaşım";
-    if (cat.includes("alışveriş") || cat.includes("giyim") || cat.includes("teknoloji")) return "🛍️ Alışveriş";
-    if (cat.includes("sağlık") || cat.includes("doktor") || cat.includes("eczane")) return "🏥 Sağlık";
-    
+    // Hiçbirine uymuyorsa
     return "📦 Diğer";
 }
 
 export async function POST(req) {
-  // --- GEÇİCİ HATA AYIKLAMA ---
-  // Gelen origin ve referer başlıklarını kontrol etmek için.
+  // 1. ADIM: Origin Kontrolü
   const origin = req.headers.get('origin');
   const referer = req.headers.get('referer');
+  const allowedOrigins = ["http://localhost:3000", "https://finansasistan.vercel.app", "https://finansasistan.vercel.app/"];
   
-  return NextResponse.json({
-    message: "Hata ayıklama aktif. Bu origin/referer'ı kopyalayıp yapıştırın.",
-    origin: origin,
-    referer: referer
-  }, { status: 200 });
-  // --- GEÇİCİ HATA AYIKLAMA SONU ---
+  const isOriginAllowed = allowedOrigins.some(domain => 
+    (origin && origin.includes(domain)) || (referer && referer.includes(domain))
+  );
+
+  // 2. ADIM: Gizli Anahtar Kontrolü
+  const appSecret = req.headers.get('x-app-key');
+  
+  if (!isOriginAllowed || appSecret !== process.env.APP_SECRET_KEY) {
+    return NextResponse.json({ error: "Yetkisiz Giriş! 🚫" }, { status: 401 });
+  }
+
+  try {
+    const { message } = await req.json();
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+    // TARİH BİLGİSİ
+    const now = new Date();
+    const today = now.toLocaleDateString('tr-TR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const isoDate = now.toISOString().split('T')[0];
+
+    const prompt = `
+    Sen Japonya'da yaşayan bir Türk için muhasebe asistanısın.
+    Bugün: ${today} (${isoDate}).
+    Para Birimi: JPY (Yen).
+    
+    Kullanıcı Mesajı: "${message}"
+
+    GÖREV:
+    İşlemleri analiz et ve JSON döndür.
+
+    KATEGORİLER:
+    1. 🏠 Ev/Yaşam
+    2. 🍔 Yeme-İçme (Haftalık alışveriş vb.)
+    3. 🎉 Eğlence/Sosyal (Restoran, Sushiro, Kafe, Market vb.)
+    4. 🚌 Ulaşım
+    5. 💡 Faturalar
+    6. 🛍️ Alışveriş
+    7. 🏥 Sağlık
+    8. 💰 Gelir/Yatırım
+    9. 📦 Diğer
+
+    KURALLAR:
+    - Restoran, Sushiro, Izakaya, Dışarıda yemek -> "🎉 Eğlence/Sosyal" olsun.
+    - Konbini, Market alışverişi -> "🍔 Yeme-İçme" olsun.
+    - Harcama negatif (-), Gelir pozitif (+).
+    - Japon Yeni tam sayıdır (Kuruş yok).
+
+    İSTENEN JSON FORMATI:
+    {
+      "reply": "Kısa ve samimi Türkçe cevap.",
+      "transactions": [
+         { "amount": -5300, "category": "🎉 Eğlence/Sosyal", "desc": "Sushiro", "date": "${isoDate}" }
+      ]
+    }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    let text = response.text();
+    
+    // Markdown temizliği
+    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    try {
+        const jsonResponse = JSON.parse(text);
+        
+        if (!jsonResponse.transactions) jsonResponse.transactions = [];
+        if (jsonResponse.transaction && !Array.isArray(jsonResponse.transactions)) jsonResponse.transactions = [jsonResponse.transaction];
+
+        // Kategorileri standartlaştır
+        jsonResponse.transactions = jsonResponse.transactions.map(t => ({
+            ...t,
+            category: fixCategory(t.category)
+        }));
+
+        return NextResponse.json(jsonResponse);
+
+    } catch (e) {
+        console.error("JSON Parse Hatası:", text);
+        return NextResponse.json({ 
+            reply: "İşlemi tam anlayamadım, tekrar yazar mısın?", 
+            transactions: [] 
+        });
+    }
+
+  } catch (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 }
