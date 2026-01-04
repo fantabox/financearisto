@@ -33,7 +33,7 @@ const formatYAxis = (tick) => {
   return tick;
 };
 
-// YENİ: view yerine flowView/categoryView ve setFlowView/setCategoryView alıyoruz
+// view yerine flowView/categoryView ve setFlowView/setCategoryView alıyoruz
 export default function FlowAnalysis({ 
     chartData, 
     categoryData, 
