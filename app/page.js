@@ -101,12 +101,22 @@ export default function Home() {
   const changeMonth = (offset) => {
     const newDate = new Date(currentDate);
     newDate.setMonth(newDate.getMonth() + offset);
+    const today = new Date();
+    if (newDate > new Date(today.getFullYear(), today.getMonth(), 31)) return;
     setCurrentDate(newDate);
   };
 
   const resetToToday = () => {
     setCurrentDate(new Date());
   };
+
+  const minDate = useMemo(() => {
+    if (transactions.length === 0) return new Date();
+    // En eski işlem tarihini bul
+    const dates = transactions.map(t => t.date?.toDate ? t.date.toDate() : new Date(t.date || 0));
+    return new Date(Math.min(...dates));
+}, [transactions]);
+const isAtMinMonth = currentDate.getMonth() === minDate.getMonth() && currentDate.getFullYear() === minDate.getFullYear();
 
   // --- 4. İŞLEM KAYDETME ---
   const handleSend = async (e) => {
@@ -129,12 +139,17 @@ export default function Home() {
         data.transactions.forEach(async (t) => {
           const safeAmount = parseFloat(t.amount);
           if (!isNaN(safeAmount)) {
-              let finalDate = new Date(); 
+              let finalDate = t.date ? new Date(t.date) : new Date() 
               if (t.date) {
-                const aiDate = new Date(t.date);
-                const today = new Date();
-                const isSameDay = aiDate.getDate() === today.getDate() && aiDate.getMonth() === today.getMonth() && aiDate.getFullYear() === today.getFullYear();
-                if (!isSameDay) finalDate = aiDate;
+                  const aiDate = new Date(t.date);
+                  const today = new Date();
+                  
+                  // Eğer AI'dan gelen tarih bugünden ilerideyse bugünü kullan, değilse AI tarihini kullan
+                  if (aiDate > today) {
+                      finalDate = today;
+                  } else {
+                      finalDate = aiDate;
+                  }
               }
               await addDoc(collection(db, "transactions"), {
                 uid: user.uid, desc: t.desc || "Genel", category: t.category || "Diğer", amount: safeAmount, date: Timestamp.fromDate(finalDate), createdAt: serverTimestamp()
@@ -157,17 +172,32 @@ export default function Home() {
     setEditModalOpen(true);
   };
 
-  const handleUpdate = async () => {
-    if (!editingItem) return;
-    try {
-        const docRef = doc(db, "transactions", editingItem.id);
-        const newDate = new Date(editForm.date);
-        await updateDoc(docRef, {
-            desc: editForm.desc, amount: parseFloat(editForm.amount), category: editForm.category, date: Timestamp.fromDate(newDate)
-        });
-        setEditModalOpen(false);
-        setEditingItem(null);
-    } catch (error) { console.error(error); }
+    const handleUpdate = async () => {
+      if (!editingItem) return;
+      
+      // Tarihi bir kez oluşturun ve hem kontrol hem kayıt için kullanın
+      const selectedDate = new Date(editForm.date);
+      const today = new Date();
+      
+      // Gelecek tarih kontrolü
+      if (selectedDate > today) {
+          alert(language === 'tr' ? "Gelecek bir tarihe işlem kaydedemezsiniz!" : "You cannot save transactions to a future date!");
+          return;
+      }
+
+      try {
+          const docRef = doc(db, "transactions", editingItem.id);
+          await updateDoc(docRef, {
+              desc: editForm.desc, 
+              amount: parseFloat(editForm.amount), 
+              category: editForm.category, 
+              date: Timestamp.fromDate(selectedDate) // selectedDate kullanıldı
+          });
+          setEditModalOpen(false);
+          setEditingItem(null);
+      } catch (error) { 
+          console.error(error); 
+      }
   };
 
   // --- 6. AYARLAR ---
@@ -190,7 +220,7 @@ export default function Home() {
   const currentYear = currentDate.getFullYear();
   const currentMonthLabel = currentDate.toLocaleDateString(language === 'tr' ? 'tr-TR' : 'en-US', { month: 'long', year: 'numeric' });
   const isCurrentMonthToday = new Date().getMonth() === currentMonth && new Date().getFullYear() === currentYear;
-
+  
   const historicalBalance = useMemo(() => {
     const endOfSelectedMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
     const pastTransactions = transactions.filter(t => {
@@ -341,7 +371,8 @@ export default function Home() {
         <div className="flex items-center gap-6">
             <button 
                 onClick={() => changeMonth(-1)} 
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 hover:bg-blue-50 text-slate-600 transition-all active:scale-90 shadow-sm"
+                disabled={isAtMinMonth}
+                className={`${isAtMinMonth ? 'bg-slate-100 text-slate-300 cursor-not-allowed' : 'bg-white hover:bg-blue-50 text-slate-600'} w-8 h-8 flex items-center justify-center rounded-full border border-slate-200 transition-all active:scale-90 shadow-sm`}
             >
                 <span className="material-symbols-outlined text-lg">chevron_left</span>
             </button>
@@ -492,7 +523,7 @@ export default function Home() {
                     <div><label className="text-xs text-slate-500 font-bold ml-1">Açıklama</label><input className="w-full border p-2 rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" value={editForm.desc} onChange={(e) => setEditForm({...editForm, desc: e.target.value})} /></div>
                     <div><label className="text-xs text-slate-500 font-bold ml-1">Tutar (Negatif=Harcama)</label><input type="number" className="w-full border p-2 rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" value={editForm.amount} onChange={(e) => setEditForm({...editForm, amount: e.target.value})} /></div>
                     <div><label className="text-xs text-slate-500 font-bold ml-1">Kategori</label><select className="w-full border p-2 rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" value={editForm.category} onChange={(e) => setEditForm({...editForm, category: e.target.value})}>{CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-                    <div><label className="text-xs text-slate-500 font-bold ml-1">Tarih</label><input type="date" className="w-full border p-2 rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" value={editForm.date} onChange={(e) => setEditForm({...editForm, date: e.target.value})} /></div>
+                    <div><label className="text-xs text-slate-500 font-bold ml-1">Tarih</label><input type="date" className="w-full border p-2 rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" value={editForm.date} max={new Date().toISOString().split('T')[0]} onChange={(e) => setEditForm({...editForm, date: e.target.value})} /></div>
                 </div>
                 <div className="flex gap-2 mt-6">
                     <button onClick={handleUpdate} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all active:scale-95 shadow-md active:shadow-none">Kaydet</button>
