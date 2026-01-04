@@ -39,7 +39,7 @@ export default function Home() {
   const [currency, setCurrency] = useState('JPY'); 
   const [language, setLanguage] = useState('tr'); 
   
-  // --- YENİ: GRAFİK GÖRÜNÜM MODLARI (BAĞIMSIZ HALE GETİRİLDİ) ---
+  // ---GRAFİK GÖRÜNÜM MODLARI
   const [chartView, setChartView] = useState('monthly');     // Net Bakiye Grafiği
   const [flowView, setFlowView] = useState('monthly');       // Nakit Akışı Grafiği (YENİ)
   const [categoryView, setCategoryView] = useState('monthly'); // Kategori Grafiği (YENİ)
@@ -303,7 +303,7 @@ const isAtMinMonth = currentDate.getMonth() === minDate.getMonth() && currentDat
     return Object.keys(categoryMap).map(key => ({ name: key, value: categoryMap[key] })).sort((a, b) => b.value - a.value);
   }, [thisMonthTransactions, transactions, categoryView, currentYear]); // DİKKAT: Sadece categoryView
 
-  // --- GRAFİK DATA 3: NET BAKİYE (chartView Kullanıyor - Değişmedi) ---
+  // --- GRAFİK DATA 3: NET BAKİYE (chartView Kullanıyor )
   const displayData = useMemo(() => {
     if (chartView === 'monthly') {
         const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
@@ -496,7 +496,7 @@ const isAtMinMonth = currentDate.getMonth() === minDate.getMonth() && currentDat
         </div>
       </main>
 
-      {/* CHAT ve MODALLAR (Aynı) */}
+      {/* CHAT ve MODALLAR */}
       <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end gap-4">
         <div className={`bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col transition-all duration-300 ease-in-out origin-bottom-right ${isChatOpen ? 'w-[350px] h-[500px] opacity-100 scale-100' : 'w-0 h-0 opacity-0 scale-50 pointer-events-none'}`}>
             <div className="bg-blue-600 p-4 flex items-center justify-between text-white shrink-0">
