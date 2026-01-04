@@ -1,7 +1,7 @@
 // app/layout.js
 import "./globals.css";
 
-// 1. ZOOM VE MOBİL GÖRÜNÜM AYARLARI (BURAYA TAŞINDI)
+// 1. ZOOM VE MOBİL GÖRÜNÜM AYARLARI
 export const viewport = {
   width: 'device-width',
   initialScale: 1,
