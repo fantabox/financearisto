@@ -22,7 +22,7 @@ const firebaseConfig = {
 // Uygulamayı başlat
 const app = initializeApp(firebaseConfig);
 
-// Dışarıya aktarıyoruz (Export) - Hatanın sebebi bu satırların olmamasıydı
+// Dışarıya aktarıyoruz (Export)
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);
