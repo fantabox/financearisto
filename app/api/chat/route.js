@@ -47,12 +47,12 @@ export async function POST(req) {
     const isoDate = userDate ? userDate : now.toISOString().split('T')[0];
     
 
-    // --- DEĞİŞİKLİK BURADA: Adaptive Language Logic ---
+    // ---Adaptive Language Logic ---
     let roleDefinition = "";
     let currencyRule = "";
     let languageRule = "";
 
-    // Para birimi kuralı sabit kalsın
+    // Para birimi kuralı sabit 
     if (currency === 'JPY') {
         currencyRule = "Para Birimi: JPY (Yen). Tam sayıdır, kuruş yok.";
     } else {
