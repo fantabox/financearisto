@@ -119,6 +119,7 @@ export default function Home() {
 const isAtMinMonth = currentDate.getMonth() === minDate.getMonth() && currentDate.getFullYear() === minDate.getFullYear();
 
   // --- 4. İŞLEM KAYDETME ---
+  // --- 4. İŞLEM KAYDETME ---
   const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -128,11 +129,24 @@ const isAtMinMonth = currentDate.getMonth() === minDate.getMonth() && currentDat
     setLoading(true);
 
     try {
+      // --- DÜZELTME BURADA BAŞLIYOR ---
+      // Kullanıcının (senin) yerel tarihini alıyoruz (Örn: "2026-01-09")
+      // 'en-CA' formatı her zaman YYYY-MM-DD verir.
+      const localDate = new Date().toLocaleDateString('en-CA'); 
+
       const res = await fetch('/api/chat', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json', 'x-app-key': process.env.NEXT_PUBLIC_APP_SECRET_KEY }, 
-        body: JSON.stringify({ message: userMsg.text, userName: user.displayName || "Dostum", currency: currency, language: language }) 
+        body: JSON.stringify({ 
+            message: userMsg.text, 
+            userName: user.displayName || "Dostum", 
+            currency: currency, 
+            language: language,
+            userDate: localDate // <--- BU SATIR EKSİKTİ, MUTLAKA OLMALI
+        }) 
       });
+      // --- DÜZELTME BİTTİ ---
+
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'ai', text: data.reply || "İşlendi.", time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }]);
       if (data.transactions && Array.isArray(data.transactions) && user) {
@@ -144,7 +158,7 @@ const isAtMinMonth = currentDate.getMonth() === minDate.getMonth() && currentDat
                   const aiDate = new Date(t.date);
                   const today = new Date();
                   
-                  // Eğer AI'dan gelen tarih bugünden ilerideyse bugünü kullan, değilse AI tarihini kullan
+                  // Gelecek tarih kontrolü
                   if (aiDate > today) {
                       finalDate = today;
                   } else {

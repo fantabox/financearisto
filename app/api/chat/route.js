@@ -31,7 +31,7 @@ export async function POST(req) {
   }
 
   try {
-    const { message, currency = 'JPY', language = 'tr' } = await req.json();
+    const { message, currency = 'JPY', language = 'tr', userDate } = await req.json();
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     
     // JSON Mode Açık
@@ -44,7 +44,8 @@ export async function POST(req) {
     // Tarih formatı locale göre kalsın
     const locale = language === 'tr' ? 'tr-TR' : 'en-US';
     const today = now.toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-    const isoDate = now.toISOString().split('T')[0];
+    const isoDate = userDate ? userDate : now.toISOString().split('T')[0];
+    
 
     // --- DEĞİŞİKLİK BURADA: Adaptive Language Logic ---
     let roleDefinition = "";
