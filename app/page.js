@@ -453,7 +453,17 @@ export default function Home() {
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden bg-slate-50 text-slate-800 font-['Manrope']">
 
-      <style jsx>{` @keyframes shimmer { 0% { transform: translateX(-150%); } 50% { transform: translateX(150%); } 100% { transform: translateX(150%); } } .animate-shimmer { animation: shimmer 2.5s infinite; } `}</style>
+      <style jsx>{`
+        @keyframes shimmer { 0% { transform: translateX(-150%); } 50% { transform: translateX(150%); } 100% { transform: translateX(150%); } }
+        .animate-shimmer { animation: shimmer 2.5s infinite; }
+        
+        /* Chart Focus/Outline Fixes */
+        :global(.recharts-wrapper) { outline: none !important; }
+        :global(.recharts-surface) { outline: none !important; }
+        :global(.recharts-layer) { outline: none !important; }
+        :global(*:focus) { outline: none !important; }
+        :global(*) { -webkit-tap-highlight-color: transparent; }
+      `}</style>
 
       {/* HEADER */}
       <header className="fixed top-0 left-0 w-full z-40 h-20 flex items-center justify-between border-b border-slate-200 bg-white/80 backdrop-blur-xl px-6 md:px-10">
