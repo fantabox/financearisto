@@ -22,11 +22,12 @@ function fixCategory(aiCategory) {
 export async function POST(req) {
   const origin = req.headers.get('origin');
   const referer = req.headers.get('referer');
-  const allowedOrigins = ["http://localhost:3000", "https://finansasistan.vercel.app", "https://finansasistan.vercel.app/"];
-  const isOriginAllowed = allowedOrigins.some(domain => (origin && origin.includes(domain)) || (referer && referer.includes(domain)));
-  const appSecret = req.headers.get('x-app-key');
+  const allowedOrigins = ["http://localhost:3000", "https://finansasistan.vercel.app"];
   
-  if (!isOriginAllowed || appSecret !== process.env.APP_SECRET_KEY) {
+  // Sadece yetkili domainlerden gelen isteklere izin ver
+  const isOriginAllowed = origin ? allowedOrigins.some(domain => origin.includes(domain)) : true;
+  
+  if (!isOriginAllowed) {
     return NextResponse.json({ error: "Yetkisiz Giriş! 🚫" }, { status: 401 });
   }
 

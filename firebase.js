@@ -10,13 +10,13 @@ import { getAnalytics } from "firebase/analytics";
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyBQkSBhfxAOFf94ye9_KaZcUQcwEHa2R3U",
-  authDomain: "my-finance-23.firebaseapp.com",
-  projectId: "my-finance-23",
-  storageBucket: "my-finance-23.firebasestorage.app",
-  messagingSenderId: "403477399978",
-  appId: "1:403477399978:web:9e80c13d64246fd7f7c3d3",
-  measurementId: "G-3V56JP78X3"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
 
 // Uygulamayı başlat

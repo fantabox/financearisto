@@ -6,6 +6,7 @@ import { signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLo
 import { collection, addDoc, query, where, onSnapshot, deleteDoc, updateDoc, doc, serverTimestamp, setDoc, getDoc, Timestamp } from "firebase/firestore";
 import NetBalanceChart from './components/charts/NetBalanceChart';
 import FlowAnalysis from './components/charts/FlowAnalysis';
+import ChatAssistant from './components/ChatAssistant';
 
 // Kategori Listesi
 const CATEGORIES = [
@@ -17,10 +18,7 @@ export default function Home() {
   // --- STATE TANIMLARI ---
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState(null);
-  const [messages, setMessages] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
 
   // Modallar
   const [modalOpen, setModalOpen] = useState(false);
@@ -46,9 +44,6 @@ export default function Home() {
 
   // TARİH STATE'İ
   const [currentDate, setCurrentDate] = useState(new Date());
-
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const chatEndRef = useRef(null);
 
   // --- 1. VERİ ÇEKME ---
   const listenToTransactions = (uid) => {
@@ -123,72 +118,7 @@ export default function Home() {
   const isAtMinMonth = currentDate.getMonth() === minDate.getMonth() && currentDate.getFullYear() === minDate.getFullYear();
 
   // --- 4. İŞLEM KAYDETME ---
-  // --- 4. İŞLEM KAYDETME ---
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    const userMsg = { role: 'user', text: input, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-    setMessages(prev => [...prev, userMsg]);
-    setInput("");
-    setLoading(true);
-
-    try {
-      // --- DÜZELTME BURADA BAŞLIYOR ---
-      // Kullanıcının (senin) yerel tarihini alıyoruz (Örn: "2026-01-09")
-      // 'en-CA' formatı her zaman YYYY-MM-DD verir.
-      const localDate = new Date().toLocaleDateString('en-CA');
-
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-app-key': process.env.NEXT_PUBLIC_APP_SECRET_KEY },
-        body: JSON.stringify({
-          message: userMsg.text,
-          userName: user.displayName || "Dostum",
-          currency: currency,
-          language: language,
-          userDate: localDate
-        })
-      });
-      // --- DÜZELTME BİTTİ ---
-
-      const data = await res.json();
-      setMessages(prev => [...prev, { role: 'ai', text: data.reply || "İşlendi.", time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
-      if (data.transactions && Array.isArray(data.transactions) && user) {
-        data.transactions.forEach(async (t) => {
-          const safeAmount = parseFloat(t.amount);
-          if (!isNaN(safeAmount)) {
-            let finalDate = new Date(); // Varsayılan: Şimdi
-
-            if (t.date) {
-              // AI'dan gelen tarih (YYYY-MM-DD)
-              // Eğer bu tarih "bugün" ise, saati sıfırlama, "şu an" olarak kalsın.
-              // Eğer "dün" veya başka günse, o günün saat 12:00'si olsun (sıralamada ortalarda dursun diye opsiyonel, veya 00:00)
-
-              const todayStr = new Date().toLocaleDateString('en-CA');
-              if (t.date === todayStr) {
-                // Bugün: Dokunma, finalDate zaten new Date() yani şu an.
-              } else {
-                // Başka gün: O tarihi baz al
-                finalDate = new Date(t.date);
-                // Saati 12:00 yapalım ki, 00:00 sorunlarından kaçınalım (istenirse)
-                // finalDate.setHours(12, 0, 0, 0); 
-              }
-
-              // Gelecek tarih kontrolü (opsiyonel, server tarafında da yapılabilir ama burada da kalsın)
-              const today = new Date();
-              if (finalDate > today) {
-                finalDate = today;
-              }
-            }
-
-            await addDoc(collection(db, "transactions"), {
-              uid: user.uid, desc: t.desc || "Genel", category: t.category || "Diğer", amount: safeAmount, date: Timestamp.fromDate(finalDate), createdAt: serverTimestamp()
-            });
-          }
-        });
-      }
-    } catch (error) { console.error(error); setMessages(prev => [...prev, { role: 'ai', text: "Hata oluştu.", time: "Now" }]); } finally { setLoading(false); }
-  };
+  // (Artık ChatAssistant.js içinde yönetiliyor)
 
   // --- 5. CRUD ---
   const confirmDelete = (id) => { setItemToDelete(id); setModalOpen(true); };
@@ -370,8 +300,7 @@ export default function Home() {
   };
 
   const handleLogin = async () => { await signInWithPopup(auth, googleProvider); };
-  const handleLogout = async () => { await signOut(auth); setMessages([]); localStorage.removeItem("chatHistory"); };
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isChatOpen]);
+  const handleLogout = async () => { await signOut(auth); localStorage.removeItem("chatHistory"); };
 
   // --- YÜKLENİYOR EKRANI (SPLASH SCREEN) ---
   if (authLoading) return (
@@ -611,23 +540,7 @@ export default function Home() {
       </main>
 
       {/* CHAT ve MODALLAR */}
-      <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end gap-4">
-        <div className={`bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col transition-all duration-300 ease-in-out origin-bottom-right ${isChatOpen ? 'w-[350px] h-[500px] opacity-100 scale-100' : 'w-0 h-0 opacity-0 scale-50 pointer-events-none'}`}>
-          <div className="bg-blue-600 p-4 flex items-center justify-between text-white shrink-0">
-            <span className="font-bold text-sm">Finans Asistanı</span>
-            <button onClick={() => setIsChatOpen(false)} className="active:scale-90 transition-transform"><span className="material-symbols-outlined text-lg">close</span></button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 bg-slate-50 flex flex-col gap-3">
-            {messages.map((msg, index) => (<div key={index} className={`flex flex-col max-w-[85%] ${msg.role === 'user' ? 'self-end items-end' : 'self-start items-start'}`}><div className={`px-4 py-2 rounded-2xl text-sm shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200'}`}>{msg.text}</div></div>))}
-            {loading && <div className="ml-2 text-xs text-slate-400">Yazıyor...</div>}<div ref={chatEndRef} />
-          </div>
-          <form onSubmit={handleSend} className="p-3 bg-white border-t border-slate-100 flex gap-2 shrink-0">
-            <input className="flex-1 bg-slate-100 rounded-full px-4 text-sm focus:outline-none" placeholder={language === 'tr' ? "Harcama yaz..." : "Type expense..."} value={input} onChange={(e) => setInput(e.target.value)} />
-            <button type="submit" className="h-10 w-10 bg-blue-600 text-white rounded-full flex items-center justify-center transition-transform active:scale-90 shadow-md active:shadow-none"><span className="material-symbols-outlined text-lg">send</span></button>
-          </form>
-        </div>
-        <button onClick={() => setIsChatOpen(!isChatOpen)} className={`h-16 w-16 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 transform hover:scale-110 active:scale-90 ${isChatOpen ? 'bg-slate-700 text-white rotate-90' : 'bg-blue-600 text-white'}`}><span className="material-symbols-outlined text-3xl">{isChatOpen ? 'close' : 'chat_bubble'}</span></button>
-      </div>
+      <ChatAssistant user={user} currency={currency} language={language} />
 
       {editModalOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4">
