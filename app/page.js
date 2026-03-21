@@ -1,12 +1,13 @@
 "use client";
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { startOfMonth, endOfMonth } from 'date-fns';
 // Firebase
 import { auth, googleProvider, db } from '../firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "firebase/auth";
-import { collection, addDoc, query, where, onSnapshot, deleteDoc, updateDoc, doc, serverTimestamp, setDoc, getDoc, Timestamp } from "firebase/firestore";
-import NetBalanceChart from './components/charts/NetBalanceChart';
+import { collection, addDoc, query, where, onSnapshot, deleteDoc, updateDoc, doc, serverTimestamp, setDoc, getDoc, Timestamp, getDocs, orderBy, limit } from "firebase/firestore";import NetBalanceChart from './components/charts/NetBalanceChart';
 import FlowAnalysis from './components/charts/FlowAnalysis';
 import ChatAssistant from './components/ChatAssistant';
+import EditModal from './components/EditModal';
 
 // Kategori Listesi
 const CATEGORIES = [
@@ -19,6 +20,8 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [oldestDate, setOldestDate] = useState(new Date());
+  const [pastTotalBalance, setPastTotalBalance] = useState(0);
 
   // Modallar
   const [modalOpen, setModalOpen] = useState(false);
@@ -29,7 +32,10 @@ export default function Home() {
   // Düzenleme
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const [editForm, setEditForm] = useState({ desc: "", amount: "", category: "", date: "" });
+  const openEditModal = (item) => {
+    setEditingItem(item);      // Hangi harcamanın seçildiğini state'e kaydet
+    setEditModalOpen(true);    // Modal penceresini aç
+  };
 
   // Ayarlar ve Görünüm
   const [tempBalance, setTempBalance] = useState("");
@@ -45,23 +51,55 @@ export default function Home() {
   // TARİH STATE'İ
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // --- 1. VERİ ÇEKME ---
-  const listenToTransactions = (uid) => {
-    const q = query(collection(db, "transactions"), where("uid", "==", uid));
+  // Sadece bir kere çalışıp kullanıcının en eski işlem tarihini bulur (Geri ok tuşunu kilitlemek için)
+  const fetchInitialUserData = async (uid) => {
+    const qOldest = query(collection(db, "transactions"), where("uid", "==", uid), orderBy("date", "asc"), limit(1));
+    const snap = await getDocs(qOldest);
+    if (!snap.empty) {
+      setOldestDate(snap.docs[0].data().date.toDate());
+    }
+  };
+
+  // Seçili ay değiştikçe o ayın verisini DİNLER ve geçmiş toplamı HESAPLAR
+  const listenToTransactions = (uid, dateObj) => {
+    const start = startOfMonth(dateObj);
+    const end = endOfMonth(dateObj);
+
+    // 1. SADECE BU AYI DİNLE (Performans artışı burada sağlanıyor)
+    const q = query(
+      collection(db, "transactions"), 
+      where("uid", "==", uid),
+      where("date", ">=", Timestamp.fromDate(start)),
+      where("date", "<=", Timestamp.fromDate(end))
+    );
+
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const transactionsData = [];
       querySnapshot.forEach((doc) => { transactionsData.push({ ...doc.data(), id: doc.id }); });
       transactionsData.sort((a, b) => {
-        const dateA = a.date && a.date.toDate ? a.date.toDate() : new Date(a.date || 0);
-        const dateB = b.date && b.date.toDate ? b.date.toDate() : new Date(b.date || 0);
-        // Tarihler eşitse (milisaniye farkı yoksa veya gün bazlıysa) oluşturulma zamanına bak
-        if (dateB.getTime() === dateA.getTime() && b.createdAt && a.createdAt) {
-          return b.createdAt.toMillis() - a.createdAt.toMillis();
-        }
-        return dateB - dateA;
+        const dateA = a.date?.toDate ? a.date.toDate().getTime() : 0;
+        const dateB = b.date?.toDate ? b.date.toDate().getTime() : 0;
+        return dateB - dateA; // Yeniden eskiye sırala
       });
       setTransactions(transactionsData);
     });
+
+    // 2. GEÇMİŞ BAKİYEYİ HESAPLA (Devir işlemi için)
+    const fetchPastBalance = async () => {
+      const qPast = query(
+        collection(db, "transactions"),
+        where("uid", "==", uid),
+        where("date", "<", Timestamp.fromDate(start))
+      );
+      const pastSnap = await getDocs(qPast);
+      let pastSum = 0;
+      pastSnap.forEach(doc => { pastSum += doc.data().amount; });
+      setPastTotalBalance(pastSum);
+    };
+
+    fetchPastBalance();
+
+    return unsubscribe;
   };
 
   const fetchSettings = async (uid) => {
@@ -78,14 +116,15 @@ export default function Home() {
   };
 
   // --- 2. AUTH ---
+  // 1. AUTH KONTROLÜ (Sadece sayfa yüklendiğinde bir kere çalışır)
   useEffect(() => {
     const initAuth = async () => {
       try { await setPersistence(auth, browserLocalPersistence); } catch (error) { console.error(error); }
       const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
         setUser(currentUser);
         if (currentUser) {
-          listenToTransactions(currentUser.uid);
           fetchSettings(currentUser.uid);
+          fetchInitialUserData(currentUser.uid); // Sisteme girişte en eski tarihi çek
         } else {
           setTransactions([]);
         }
@@ -95,6 +134,15 @@ export default function Home() {
     };
     initAuth();
   }, []);
+
+  // 2. AYLIK VERİ TAKİBİ (currentDate veya user değiştikçe tekrar çalışır)
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = listenToTransactions(user.uid, currentDate);
+    return () => {
+      if (unsubscribe) unsubscribe(); // Ay değiştiğinde eski ayın dinleyicisini kapat
+    };
+  }, [user, currentDate]);
 
   // --- 3. TARİH NAVİGASYONU ---
   const changeMonth = (offset) => {
@@ -109,13 +157,7 @@ export default function Home() {
     setCurrentDate(new Date());
   };
 
-  const minDate = useMemo(() => {
-    if (transactions.length === 0) return new Date();
-    // En eski işlem tarihini bul
-    const dates = transactions.map(t => t.date?.toDate ? t.date.toDate() : new Date(t.date || 0));
-    return new Date(Math.min(...dates));
-  }, [transactions]);
-  const isAtMinMonth = currentDate.getMonth() === minDate.getMonth() && currentDate.getFullYear() === minDate.getFullYear();
+  const isAtMinMonth = currentDate.getMonth() === oldestDate.getMonth() && currentDate.getFullYear() === oldestDate.getFullYear();
 
   // --- 4. İŞLEM KAYDETME ---
   // (Artık ChatAssistant.js içinde yönetiliyor)
@@ -124,11 +166,8 @@ export default function Home() {
   const confirmDelete = (id) => { setItemToDelete(id); setModalOpen(true); };
   const handleDelete = async () => { if (!itemToDelete) return; await deleteDoc(doc(db, "transactions", itemToDelete)); setModalOpen(false); setItemToDelete(null); };
 
-  const openEditModal = (item) => {
+  const openEdit = (item) => {
     setEditingItem(item);
-    let dateStr = "";
-    if (item.date && item.date.toDate) dateStr = item.date.toDate().toISOString().split('T')[0];
-    setEditForm({ desc: item.desc, amount: item.amount, category: item.category, date: dateStr });
     setEditModalOpen(true);
   };
 
@@ -181,17 +220,7 @@ export default function Home() {
   const currentMonthLabel = currentDate.toLocaleDateString(language === 'tr' ? 'tr-TR' : 'en-US', { month: 'long', year: 'numeric' });
   const isCurrentMonthToday = new Date().getMonth() === currentMonth && new Date().getFullYear() === currentYear;
 
-  const historicalBalance = useMemo(() => {
-    const endOfSelectedMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
-    const pastTransactions = transactions.filter(t => {
-      if (!t.date) return false;
-      const tDate = t.date.toDate ? t.date.toDate() : new Date(t.date || 0);
-      return tDate <= endOfSelectedMonth;
-    });
-    const income = pastTransactions.filter(t => t.amount > 0).reduce((acc, t) => acc + t.amount, 0);
-    const expense = pastTransactions.filter(t => t.amount < 0).reduce((acc, t) => acc + Math.abs(t.amount), 0);
-    return startingBalance + income - expense;
-  }, [transactions, currentMonth, currentYear, startingBalance]);
+  const historicalBalance = startingBalance + pastTotalBalance + transactions.reduce((acc, t) => acc + t.amount, 0);
 
   const thisMonthTransactions = transactions.filter(t => {
     if (!t.date) return false;
@@ -542,23 +571,11 @@ export default function Home() {
       {/* CHAT ve MODALLAR */}
       <ChatAssistant user={user} currency={currency} language={language} />
 
-      {editModalOpen && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4">
-          <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl transform transition-all scale-100">
-            <h3 className="font-bold mb-4 text-slate-800 text-lg">İşlemi Düzenle</h3>
-            <div className="flex flex-col gap-3">
-              <div><label className="text-xs text-slate-500 font-bold ml-1">Açıklama</label><input className="w-full border p-2 rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" value={editForm.desc} onChange={(e) => setEditForm({ ...editForm, desc: e.target.value })} /></div>
-              <div><label className="text-xs text-slate-500 font-bold ml-1">Tutar (Negatif=Harcama)</label><input type="number" className="w-full border p-2 rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" value={editForm.amount} onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })} /></div>
-              <div><label className="text-xs text-slate-500 font-bold ml-1">Kategori</label><select className="w-full border p-2 rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}>{CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-              <div><label className="text-xs text-slate-500 font-bold ml-1">Tarih</label><input type="date" className="w-full border p-2 rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" value={editForm.date} max={new Date().toISOString().split('T')[0]} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} /></div>
-            </div>
-            <div className="flex gap-2 mt-6">
-              <button onClick={handleUpdate} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all active:scale-95 shadow-md active:shadow-none">Kaydet</button>
-              <button onClick={() => setEditModalOpen(false)} className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold hover:bg-slate-200 transition-all active:scale-95">İptal</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <EditModal 
+        isOpen={editModalOpen} 
+        onClose={() => setEditModalOpen(false)} 
+        itemToEdit={editingItem} 
+      />
 
       {modalOpen && (<div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"><div className="bg-white p-6 rounded-2xl shadow-2xl transform transition-all scale-100"><h3 className="font-bold mb-4 text-lg">Silinsin mi?</h3><div className="flex gap-2"><button onClick={handleDelete} className="bg-red-500 text-white px-6 py-3 rounded-xl font-bold transition-all active:scale-95 shadow-lg shadow-red-500/30 active:shadow-none">Evet, Sil</button><button onClick={() => setModalOpen(false)} className="bg-slate-100 text-slate-700 px-6 py-3 rounded-xl font-bold transition-all active:scale-95 hover:bg-slate-200">Vazgeç</button></div></div></div>)}
       {isSettingsOpen && (<div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"><div className="bg-white p-6 rounded-2xl shadow-2xl"><h3 className="font-bold mb-4">Devir Bakiyesi</h3><input type="number" value={tempBalance} onChange={(e) => setTempBalance(e.target.value)} className="border p-2 w-full rounded mb-4 focus:ring-2 focus:ring-blue-500 outline-none" /><div className="flex gap-2"><button onClick={handleSaveSettings} className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg transition-all active:scale-95 shadow-md">Kaydet</button><button onClick={() => setIsSettingsOpen(false)} className="flex-1 bg-slate-100 text-slate-600 px-4 py-2 rounded-lg transition-all active:scale-95">İptal</button></div></div></div>)}
